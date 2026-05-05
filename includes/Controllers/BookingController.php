@@ -232,6 +232,7 @@ final class BookingController extends WP_REST_Controller
 				'date' => $date,
 				'start_time' => $start_time,
 				'end_time' => $end_time,
+				'duration_hours' => $price['duration_hours'],
 				'customer_name' => $name,
 				'customer_email' => $email,
 				'extras' => $extras,

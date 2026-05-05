@@ -133,13 +133,24 @@ final class PricingService
 			$item_subtotal += $modifier_price;
 			$item_breakdown = array_merge($item_breakdown, $mod_breakdown);  // Include in item breakdown
 
+			// Get featured image URL for WooCommerce product image
+			$thumbnail = '';
+			if (has_post_thumbnail($item_id)) {
+				$thumb_id = get_post_thumbnail_id($item_id);
+				$thumb_url = wp_get_attachment_image_url($thumb_id, 'medium');
+				if ($thumb_url) {
+					$thumbnail = $thumb_url;
+				}
+			}
+
 			// Store per-item detail
 			$item_details[] = [
 				'id' => $item_id,
 				'type' => $item_type,
 				'title' => $item_title,
 				'subtotal' => round($item_subtotal, 2),
-				'breakdown' => $item_breakdown
+				'breakdown' => $item_breakdown,
+				'thumbnail' => $thumbnail
 			];
 
 			$running_total += $item_subtotal;

@@ -37,7 +37,7 @@ final class WooCommerceService
         error_log('SpaceBooking WC: Creating ' . count($items) . ' item products + ' . count($extras) . ' extras for booking #' . $booking_id);
 
         // Helper to create consistent virtual product
-        $create_product = function ($name, $price, $item_breakdown = [], $extra_id = 0) use ($booking_id) {
+        $create_product = function ($name, $price, $item_breakdown = [], $extra_id = 0, $start_time = '', $end_time = '', $duration_hours = 0, $thumbnail_url = '') use ($booking_id, $booking_data) {
             $product = new WC_Product_Simple();
             $product->set_name($name);
             $product->set_regular_price($price);
@@ -48,6 +48,16 @@ final class WooCommerceService
             $product->set_stock_quantity(1);
             $product->set_stock_status('instock');
             $product->set_sold_individually(true);
+
+            // Set product image from space featured image (like Step1 display)
+            if (!empty($thumbnail_url)) {
+                // Get attachment ID from URL
+                $attachment_id = attachment_url_to_postid($thumbnail_url);
+                if ($attachment_id) {
+                    $product->set_image_id($attachment_id);
+                }
+            }
+
             $product->save();
 
             // Meta for breakdown
@@ -55,7 +65,13 @@ final class WooCommerceService
                 $product->add_meta_data('sb_item_breakdown', wp_json_encode($item_breakdown), true);
             }
 
-            error_log('SpaceBooking WC: Created product ID ' . $product->get_id() . ' "' . $name . '" $' . $price);
+            // Time slot meta data
+            $product->add_meta_data('sb_start_time', $start_time, true);
+            $product->add_meta_data('sb_end_time', $end_time, true);
+            $product->add_meta_data('sb_duration_hours', $duration_hours, true);
+            $product->add_meta_data('sb_date', $booking_data['date'] ?? '', true);
+
+            error_log('SpaceBooking WC: Created product ID ' . $product->get_id() . ' "' . $name . '" $' . $price . ($thumbnail_url ? ' with image' : ''));
             return $product;
         };
 
@@ -77,10 +93,33 @@ final class WooCommerceService
 
         $added_count = 0;
 
+        // Time slot info for product naming
+        $booking_date = $booking_data['date'] ?? '';
+        $start_time = $booking_data['start_time'] ?? '';
+        $end_time = $booking_data['end_time'] ?? '';
+
+        // Calculate duration from start/end time if not provided, fallback calculation
+        $duration_hours = 0;
+        if (isset($booking_data['duration_hours']) && $booking_data['duration_hours'] > 0) {
+            $duration_hours = round((float) $booking_data['duration_hours'], 1);
+        } elseif (!empty($start_time) && !empty($end_time)) {
+            // Calculate duration from time difference
+            $start_minutes = strtotime($start_time) - strtotime('00:00:00');
+            $end_minutes = strtotime($end_time) - strtotime('00:00:00');
+            if ($start_time > $end_time) {
+                // Handle overnight (e.g., 22:00 to 02:00)
+                $end_minutes += 86400;  // Add 24 hours
+            }
+            $duration_hours = round(($end_minutes - $start_minutes) / 3600, 1);
+        }
+
+        error_log('SpaceBooking WC: duration_hours=' . $duration_hours . ' (start=' . $start_time . ', end=' . $end_time . ')');
+
         // 1. Add ONE PRODUCT PER ITEM (spaces/packages)
         foreach ($items as $item) {
-            $item_name = $item['title'] . ' Booking #' . $booking_id;
-            $item_product = $create_product($item_name, $item['subtotal'], $item['breakdown'], $item['id']);
+            $item_name = $item['title'];
+            $thumbnail_url = $item['thumbnail'] ?? '';
+            $item_product = $create_product($item_name, $item['subtotal'], $item['breakdown'], $item['id'], $start_time, $end_time, $duration_hours, $thumbnail_url);
 
             // Description w/ time
             $desc = '<strong>' . $item['title'] . '</strong><br>';
@@ -119,8 +158,10 @@ final class WooCommerceService
             $extra_title = $extra_item['label'];
             $extra_price = $extra_item['amount'];
 
-            $extra_product = $create_product($extra_title, $extra_price, [], $extra_id);
-            $extra_product->set_description('Booking extra #' . $booking_id . ' | Item: ' . $extra_id);
+            // Extras product naming with time slot info
+            $extra_product_name = $extra_title;
+            $extra_product = $create_product($extra_product_name, $extra_price, [], $extra_id, $start_time, $end_time, $duration_hours);
+            $extra_product->set_description('Booking extra #' . $booking_id . ' | Item: ' . $extra_id . ' | ' . $booking_date . ' ' . $start_time . '-' . $end_time);
             $extra_product->save();
 
             $extra_key = WC()->cart->add_to_cart($extra_product->get_id(), 1, 0, [], array_merge($common_meta, [
