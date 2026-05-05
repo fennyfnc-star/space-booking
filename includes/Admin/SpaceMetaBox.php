@@ -32,8 +32,17 @@ final class SpaceMetaBox
         $rate = get_post_meta($post->ID, '_sb_hourly_rate', true);
         $min_dur = get_post_meta($post->ID, '_sb_min_duration', true) ?: 1;
         $max_dur = get_post_meta($post->ID, '_sb_max_duration', true) ?: 8;
+        $default_dur = get_post_meta($post->ID, '_sb_default_duration', true) ?: '';
         $capacity = get_post_meta($post->ID, '_sb_capacity', true);
         $overrides = get_post_meta($post->ID, '_sb_day_overrides', true);
+
+        // Get taxonomy terms for space type
+        $space_type_terms = get_terms([
+            'taxonomy' => 'sb_space_type',
+            'hide_empty' => false,
+        ]);
+        $current_space_type = wp_get_post_terms($post->ID, 'sb_space_type');
+        $current_type_slug = !empty($current_space_type) ? $current_space_type[0]->slug : '';
 
         if (!is_array($overrides)) {
             $overrides = [];
@@ -127,6 +136,23 @@ final class SpaceMetaBox
         <input type="number" id="sb_hourly_rate" name="sb_hourly_rate" step="0.01" min="0"
             value="<?php echo esc_attr($rate); ?>">
 
+    </div>
+    <div class="sb-meta-field">
+        <label for="sb_space_type"><?php esc_html_e('Space Type', 'space-booking'); ?></label>
+        <select id="sb_space_type" name="sb_space_type">
+            <option value=""><?php esc_html_e('-- Select Type --', 'space-booking'); ?></option>
+            <?php foreach ($space_type_terms as $term): ?>
+            <option value="<?php echo esc_attr($term->slug); ?>" <?php selected($current_type_slug, $term->slug); ?>>
+                <?php echo esc_html($term->name); ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div class="sb-meta-field">
+        <label for="sb_default_duration"><?php esc_html_e('Default Duration (hours)', 'space-booking'); ?></label>
+        <input type="number" id="sb_default_duration" name="sb_default_duration" min="1" max="24"
+            value="<?php echo esc_attr($default_dur); ?>">
+        <p class="description"><?php esc_html_e('Suggested default booking duration.', 'space-booking'); ?></p>
     </div>
     <div class="sb-meta-field">
         <label for="sb_capacity"><?php esc_html_e('Capacity (guests)', 'space-booking'); ?></label>
@@ -555,9 +581,18 @@ jQuery(document).ready(function($) {
         update_post_meta($post_id, '_sb_hourly_rate', (float) ($_POST['sb_hourly_rate'] ?? 0));
         update_post_meta($post_id, '_sb_min_duration', (int) ($_POST['sb_min_duration'] ?? 1));
         update_post_meta($post_id, '_sb_max_duration', (int) ($_POST['sb_max_duration'] ?? 8));
+        update_post_meta($post_id, '_sb_default_duration', (int) ($_POST['sb_default_duration'] ?? 0));
         update_post_meta($post_id, '_sb_capacity', (int) ($_POST['sb_capacity'] ?? 0));
         update_post_meta($post_id, '_sb_buffer_pre_minutes', (int) ($_POST['sb_buffer_pre'] ?? 0));
         update_post_meta($post_id, '_sb_buffer_post_minutes', (int) ($_POST['sb_buffer_post'] ?? 0));
+
+        // Save space type taxonomy
+        $space_type = sanitize_text_field($_POST['sb_space_type'] ?? '');
+        if (!empty($space_type)) {
+            wp_set_post_terms($post_id, $space_type, 'sb_space_type');
+        } else {
+            wp_set_post_terms($post_id, [], 'sb_space_type');
+        }
 
         // NEW Resource Dependencies validation/save
         $raw_deps = $_POST['sb_resource_dependencies'] ?? [];

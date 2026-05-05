@@ -85,6 +85,10 @@ final class BookingController extends WP_REST_Controller
 		$start_time = (string) $request->get_param('start_time');
 		$end_time = (string) $request->get_param('end_time');
 		$extras = (array) ($request->get_param('extras') ?? []);
+
+		// DEBUG: Trace received extras
+		error_log('SB_DEBUG BookingController: Received extras from request: ' . json_encode($extras));
+		error_log('SB_DEBUG BookingController: Raw request params: ' . json_encode($request->get_body_params()));
 		$name = sanitize_text_field($request->get_param('customer_name'));
 		$email = sanitize_email($request->get_param('customer_email'));
 		$phone = sanitize_text_field($request->get_param('customer_phone') ?? '');
@@ -143,29 +147,26 @@ final class BookingController extends WP_REST_Controller
 			$lead_space_id, $date, $start_time, $end_time, $extras, $selected_item_ids, $package_id, null
 		);
 
-		// ── Validate frontend breakdown ──────────────────────────────────────
-		$frontend_sum = 0.0;
-		foreach ($frontend_breakdown as $item) {
-			$frontend_sum += (float) ($item['amount'] ?? 0);
-		}
-		$calculated_total = $price['total_price'];
-		if (abs($frontend_sum - $calculated_total) > 0.01) {
+		// DEBUG: Log pricing details
+		error_log(sprintf(
+			'SpaceBooking DEBUG: Booking#%d price calc - base:%.2f extras:%.2f modifier:%.2f total:%.2f',
+			$lead_space_id,
+			$price['base_price'],
+			$price['extras_price'],
+			$price['modifier_price'] ?? 0,
+			$price['total_price']
+		));
+		foreach ($price['breakdown'] as $idx => $item) {
 			error_log(sprintf(
-				'SpaceBooking: Frontend breakdown sum mismatch for booking #%d: frontend=%.2f, backend=%.2f',
-				$booking_id ?? 'unknown', $frontend_sum, $calculated_total
+				'SpaceBooking DEBUG: breakdown[%d] label="%s" amount=%.2f type="%s"',
+				$idx,
+				$item['label'],
+				$item['amount'],
+				$item['context']['type'] ?? 'unknown'
 			));
-			update_post_meta($booking_id, '_sb_breakdown_mismatch', [
-				'frontend_sum' => $frontend_sum,
-				'backend_total' => $calculated_total,
-				'frontend_breakdown' => $frontend_breakdown,
-			]);
-			$frontend_breakdown = [];  // Fallback to raw
-		} else {
-			update_post_meta($booking_id, '_sb_price_breakdown_enriched', $frontend_breakdown);
-			error_log(sprintf('SpaceBooking: Validated enriched breakdown saved for booking #%d', $booking_id));
 		}
 
-		// ── Validate frontend breakdown ──────────────────────────────────────
+		// ── Validate frontend breakdown (before create) ─────────────────────
 		$frontend_sum = 0.0;
 		foreach ($frontend_breakdown as $item) {
 			$frontend_sum += (float) ($item['amount'] ?? 0);
@@ -173,13 +174,28 @@ final class BookingController extends WP_REST_Controller
 		$calculated_total = $price['total_price'];
 		if (abs($frontend_sum - $calculated_total) > 0.01) {
 			error_log(sprintf(
-				'SpaceBooking: Frontend breakdown sum mismatch: frontend=%.2f, backend=%.2f',
+				'SpaceBooking: Frontend breakdown mismatch: frontend=%.2f vs backend=%.2f',
 				$frontend_sum, $calculated_total
 			));
 			$frontend_breakdown = [];  // Fallback to raw
 		}
 
 		// ── Persist pending booking + selected_items meta ────────────────────
+		// IMPORTANT: Include calculated prices in the data
+		$data['base_price'] = $price['base_price'];
+		$data['extras_price'] = $price['extras_price'];
+		$data['modifier_price'] = $price['modifier_price'] ?? 0;
+		$data['total_price'] = $price['total_price'];
+		$data['duration_hours'] = $price['duration_hours'];
+
+		error_log(sprintf(
+			'SpaceBooking DEBUG: Saving booking#%d with total_price=%.2f (base=%.2f extras=%.2f)',
+			$lead_space_id,
+			$data['total_price'],
+			$data['base_price'],
+			$data['extras_price']
+		));
+
 		try {
 			$booking_id = $this->repo->create($data);
 			// Save selected_item_ids for WC multi-item
@@ -257,7 +273,7 @@ final class BookingController extends WP_REST_Controller
 		return new WP_REST_Response([
 			'booking_id' => $booking_id,
 			'checkout_url' => $checkout_url,
-			...$price,  // Full price structure
+			'price' => $price,
 			'cart_added_directly' => $cart_added,
 		], 201);
 	}

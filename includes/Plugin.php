@@ -16,6 +16,7 @@ use SpaceBooking\Controllers\SpaceController;
 use SpaceBooking\CPT\ExtraCPT;
 use SpaceBooking\CPT\PackageCPT;
 use SpaceBooking\CPT\SpaceCPT;
+use SpaceBooking\Taxonomies\TypeTaxonomy;
 
 /**
  * Main plugin singleton – boots all subsystems.
@@ -50,6 +51,13 @@ final class Plugin
         $this->load_textdomain();
         $this->register_cpts();
         $this->register_shortcodes();
+        $this->register_taxonomies();
+    }
+
+    // ── Taxonomies ───────────────────────────────────────────────────────────
+    private function register_taxonomies(): void
+    {
+        (new TypeTaxonomy())->register();
     }
 
     // ── Text domain ──────────────────────────────────────────────────────────

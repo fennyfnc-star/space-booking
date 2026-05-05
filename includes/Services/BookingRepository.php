@@ -29,14 +29,109 @@ class BookingRepository
 			return null;
 		}
 
+		// Get all meta first (includes _sb_selected_item_ids)
+		$meta = $this->get_all_meta($id);
+		$booking['_meta_data'] = $meta;
+
 		// Enrich with space/package info
 		$space = get_post($booking['space_id']);
 		$package = $booking['package_id'] ? get_post($booking['package_id']) : null;
 
 		$booking['_space_title'] = $space->post_title ?? 'Unknown Space';
 		$booking['_package_title'] = $package ? $package->post_title : null;
-		$booking['_extras'] = $this->get_extras($id);
-		$booking['_meta_data'] = $this->get_all_meta($id);
+
+		// Get selected_item_ids from meta (for multi-space support)
+		$selected_item_ids = [];
+		if (isset($meta['_sb_selected_item_ids'])) {
+			$selected_item_ids = json_decode($meta['_sb_selected_item_ids'], true) ?: [];
+		}
+
+		// Fallback to space_id if no selected_item_ids (legacy bookings)
+		if (empty($selected_item_ids)) {
+			$selected_item_ids = [(int) $booking['space_id']];
+		}
+
+		// Build selected_items array with full details
+		$selected_items = [];
+		$space_titles = [];
+		foreach ($selected_item_ids as $item_id) {
+			$post = get_post($item_id);
+			if ($post && in_array($post->post_type, ['sb_space', 'sb_package'], true)) {
+				$selected_items[] = [
+					'id' => $post->ID,
+					'type' => $post->post_type,
+					'title' => $post->post_title,
+				];
+				$space_titles[] = $post->post_title;
+			}
+		}
+		$booking['_selected_items'] = $selected_items;
+		$booking['_space_titles'] = $space_titles;
+
+		// Get extras with proper validation - only include valid extras
+		$extras = $this->get_extras($id);
+		$valid_extras = [];
+		foreach ($extras as $extra) {
+			// Only include extras with valid extra_id and quantity > 0
+			if (!empty($extra['extra_id']) && !empty($extra['quantity'])) {
+				$extra_post = get_post($extra['extra_id']);
+				if ($extra_post && $extra_post->post_type === 'sb_extra') {
+					$valid_extras[] = $extra;
+				}
+			}
+		}
+		$booking['_extras'] = $valid_extras;
+		$booking['extras'] = $valid_extras;  // Frontend expects 'extras' key
+
+		// Include extra details (only for valid extras)
+		$booking['_extras_details'] = array_map(function ($e) {
+			return [
+				'extra_id' => $e['extra_id'],
+				'extra_name' => $e['title'] ?? 'Unknown',
+				'quantity' => $e['quantity'],
+				'unit_price' => $e['price'] ?? 0,
+			];
+		}, $valid_extras);
+
+		// DEBUG: Log data sources
+		error_log(sprintf(
+			'SpaceBooking DEBUG findEnriched(#%d): db_extras_col="%s", extras_table_count=%d, valid_extras_count=%d',
+			$id,
+			is_array($booking['extras']) ? json_encode($booking['extras']) : ($booking['extras'] ?? 'empty'),
+			count($extras),
+			count($valid_extras)
+		));
+
+		// Include price breakdown if available
+		$price_breakdown = $this->get_meta($id, '_sb_price_breakdown');
+		if ($price_breakdown) {
+			$booking['_price_breakdown'] = json_decode($price_breakdown, true);
+			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items', count($booking['_price_breakdown'])));
+		}
+
+		// Include enriched price breakdown if available (THIS IS LIKELY THE SOURCE OF INACCURATE EXTRAS)
+		$price_breakdown_enriched = $this->get_meta($id, '_sb_price_breakdown_enriched');
+		if ($price_breakdown_enriched) {
+			$decoded = json_decode($price_breakdown_enriched, true);
+			if ($decoded) {
+				$booking['_price_breakdown_enriched'] = $decoded;
+				$extra_items = array_filter($decoded, function ($item) {
+					return isset($item['type']) && $item['type'] === 'extra';
+				});
+				error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown_enriched found with %d EXTRA items (THIS IS LIKELY WRONG SOURCE)', count($extra_items)));
+				$booking['display_extras'] = $extra_items;
+			}
+		}
+
+		// DEBUG: Log what's being returned
+		error_log(sprintf(
+			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _extras_details=%s, display_extras=%s',
+			$id,
+			json_encode($booking['extras'] ?? []),
+			json_encode($booking['_extras'] ?? []),
+			json_encode($booking['_extras_details'] ?? []),
+			json_encode($booking['display_extras'] ?? [])
+		));
 
 		return $booking;
 	}
@@ -270,6 +365,13 @@ class BookingRepository
 	private function save_extras(int $booking_id, array $extras): void
 	{
 		global $wpdb;
+
+		// FIX: Delete existing extras BEFORE inserting new ones to prevent orphaned extras
+		$wpdb->delete(
+			$wpdb->prefix . 'sb_booking_extras',
+			['booking_id' => $booking_id],
+			['%d']
+		);
 
 		foreach ($extras as $extra) {
 			$wpdb->insert(

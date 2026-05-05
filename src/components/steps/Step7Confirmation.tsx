@@ -1,11 +1,36 @@
 import React, { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 
+interface SelectedItem {
+  id: number;
+  type: string;
+  title: string;
+}
+
+interface ExtraDetail {
+  extra_id: number;
+  extra_name: string;
+  quantity: number;
+  unit_price: number;
+}
+
+interface PriceBreakdownItem {
+  label: string;
+  amount: number;
+  context?: {
+    type: "space" | "package" | "extra" | "segment" | "modifier";
+    name?: string;
+    id?: number;
+  };
+}
+
 interface BookingData {
   id: number;
   status: string;
   space_id: number;
-  space_title?: string;
+  _space_title?: string;
+  _space_titles?: string[];
+  _selected_items?: SelectedItem[];
   package_id?: number;
   customer_name: string;
   customer_email: string;
@@ -15,7 +40,19 @@ interface BookingData {
   end_time: string;
   duration_hours: number;
   total_price: number;
-  extras?: Array<{ extra_id: number; quantity: number; extra_name?: string }>;
+  extras?:
+    | ExtraDetail[]
+    | Array<{
+        extra_id: number;
+        quantity: number;
+        extra_name?: string;
+        title?: string;
+      }>;
+  _extras?:
+    | ExtraDetail[]
+    | Array<{ extra_id: number; quantity: number; title?: string }>;
+  _extras_details?: ExtraDetail[];
+  _price_breakdown?: PriceBreakdownItem[];
   notes?: string;
 }
 
@@ -36,6 +73,7 @@ export function Step7Confirmation() {
           return res.json();
         })
         .then((data) => {
+          console.log("BOOKING DATA: ", data);
           setBookingData(data);
           setLoading(false);
         })
@@ -55,7 +93,7 @@ export function Step7Confirmation() {
         <p>Loading booking details...</p>
       </div>
     );
-  }
+  } 
 
   if (error || !bookingData) {
     return (
@@ -120,12 +158,38 @@ export function Step7Confirmation() {
 
         <table className="sb-invoice__table">
           <tbody>
-            <tr>
-              <th>Space</th>
+            {/* <tr>
+              <th>
+                Space
+                {bookingData._space_titles &&
+                bookingData._space_titles.length > 1
+                  ? "s"
+                  : ""}
+              </th>
               <td>
-                {bookingData.space_title || `Space #${bookingData.space_id}`}
+                {bookingData._space_titles &&
+                bookingData._space_titles.length > 0
+                  ? bookingData._space_titles.join(", ")
+                  : bookingData._space_title ||
+                    `Space #${bookingData.space_id}`}
               </td>
-            </tr>
+            </tr> */}
+            {bookingData._selected_items &&
+              bookingData._selected_items.length > 1 && (
+                <tr>
+                  <th>Selected Spaces</th>
+                  <td>
+                    <ul style={{ margin: 0, paddingLeft: "20px" }}>
+                      {bookingData._selected_items?.map((item) => (
+                        <li key={item.id}>
+                          {item.type === "sb_package" ? "📦" : "🏠"}{" "}
+                          {item.title}
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              )}
             <tr>
               <th>Date</th>
               <td>{bookingData.booking_date}</td>
@@ -155,21 +219,38 @@ export function Step7Confirmation() {
                 <td>{bookingData.customer_phone}</td>
               </tr>
             )}
-            {bookingData.extras && bookingData.extras.length > 0 && (
-              <tr>
-                <th>Extras</th>
-                <td>
+            <tr>
+              <th>Extras</th>
+              <td>
+                {(bookingData._extras_details &&
+                  bookingData._extras_details.length > 0) ||
+                (bookingData.extras as any[])?.length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {bookingData.extras.map((e) => (
+                    {(
+                      bookingData._extras_details ||
+                      bookingData.extras ||
+                      []
+                    ).map((e: any) => (
                       <li key={e.extra_id}>
-                        {getExtraTitle(e.extra_id, e.extra_name)}
+                        {e.extra_name || e.title || getExtraTitle(e.extra_id)}
                         {e.quantity > 1 && ` × ${e.quantity}`}
+                        {e.unit_price > 0 && (
+                          <span style={{ color: "#666", fontSize: "0.9em" }}>
+                            {" "}
+                            ({window.sbConfig.symbol}
+                            {e.unit_price.toFixed(2)})
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
-                </td>
-              </tr>
-            )}
+                ) : (
+                  <span style={{ color: "#999", fontStyle: "italic" }}>
+                    None
+                  </span>
+                )}
+              </td>
+            </tr>
             <tr className="sb-invoice__total">
               <th>
                 {bookingStatus === "in_review" ? "Total Paid" : "Total Due"}

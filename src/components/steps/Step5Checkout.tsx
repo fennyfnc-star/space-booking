@@ -28,6 +28,17 @@ export function Step5Checkout() {
       .getState()
       .selectedItems.find((i) => i.type === "package")?.id;
 
+    // DEBUG: Trace what's being sent
+    const currentSelectedExtras = useBookingStore.getState().selectedExtras;
+    console.log(
+      "SB_DEBUG Step5Checkout: selectedExtras being sent:",
+      JSON.stringify(currentSelectedExtras),
+    );
+    console.log(
+      "SB_DEBUG Step5Checkout: selectedItems:",
+      JSON.stringify(selectedItemIds),
+    );
+
     if (!spaceId) {
       setError("No space selected.");
       return;
@@ -48,7 +59,7 @@ export function Step5Checkout() {
         customer_email: String(customerInfo.email || ""),
         customer_phone: String(customerInfo.phone || ""),
         notes: String(customerInfo.notes || ""),
-        extras: useBookingStore.getState().selectedExtras,
+        extras: currentSelectedExtras,
       });
 
       setCheckoutData({
