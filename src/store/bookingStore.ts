@@ -98,10 +98,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setStep: (step: BookingStep) => set({ currentStep: step }),
   nextStep: () =>
     set((state) => {
-      // Skip step 4 (Details) - go from step 3 (Add-ons) directly to step 5 (Terms)
       let next = state.currentStep + 1;
-      if (next === 4) next = 5;
-      return { currentStep: Math.min(next, 7) as BookingStep };
+      return { currentStep: Math.min(next, 6) as BookingStep };
     }),
   prevStep: () =>
     set((state) => {
