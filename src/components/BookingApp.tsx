@@ -6,8 +6,7 @@ import { StepProgress } from "./shared/StepProgress";
 import { Step1Selection } from "./steps/Step1Selection";
 import { Step2Scheduling } from "./steps/Step2Scheduling";
 import { Step3Addons } from "./steps/Step3Addons";
-import { Step4Details } from "./steps/Step4Details";
-import { Step5Checkout } from "./steps/Step5Checkout";
+// Step4Details removed - customer details not required
 import { Step5Terms } from "./steps/Step5Terms";
 import { Step6Payment } from "./steps/Step6Payment";
 import { Step7Confirmation } from "./steps/Step7Confirmation";
@@ -37,7 +36,7 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
     if (directBookingId) {
       const id = parseInt(directBookingId);
       if (!isNaN(id)) {
-        useBookingStore.setState({ bookingId: id, currentStep: 7 });
+        useBookingStore.setState({ bookingId: id, currentStep: 6 });
         loadBookingStatus(id);
         return; // Skip other init logic
       }
@@ -47,7 +46,7 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
   // Cart/session check + cleanup
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("step") === "7" && bookingId) {
+    if (params.get("step") === "6" && bookingId) {
       return; // Direct confirmation
     }
 
@@ -110,10 +109,9 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
         {currentStep === 1 && <Step1Selection />}
         {currentStep === 2 && <Step2Scheduling />}
         {currentStep === 3 && <Step3Addons />}
-        {currentStep === 4 && <Step4Details />}
-        {currentStep === 5 && <Step5Terms />}
-        {currentStep === 6 && <Step6Payment />}
-        {currentStep === 7 && <Step7Confirmation />}
+        {currentStep === 4 && <Step5Terms />}
+        {currentStep === 5 && <Step6Payment />}
+        {currentStep === 6 && <Step7Confirmation />}
       </div>
     </div>
   );

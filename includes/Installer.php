@@ -105,6 +105,7 @@ notes           TEXT            DEFAULT NULL,
 		(new \SpaceBooking\Migrations\AddInReviewStatus())->run();
 		(new \SpaceBooking\Migrations\AddParentBookingId())->run();
 		(new \SpaceBooking\Migrations\AddBookingMeta())->run();
+		(new \SpaceBooking\Migrations\MakeCustomerFieldsOptional())->run();
 
 		update_option('sb_db_version', SB_VERSION);
 	}
@@ -126,5 +127,4 @@ notes           TEXT            DEFAULT NULL,
 		add_option('sb_buffer_post_minutes', 15);
 		add_option('sb_confirmation_email_template', '<p>Dear [customer_name],</p><p>Thank you for your booking #[order_id]. Details:</p><ul><li>Space: [space_name]</li><li>Date/Time: [booking_date]</li><li>Total: [total_price]</li></ul>[price_breakdown]<p>Access instructions: [access_instructions]</p>');
 	}
-
 }

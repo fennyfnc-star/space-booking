@@ -5,7 +5,6 @@ const STEPS: { label: string }[] = [
   { label: "Select" },
   { label: "Schedule" },
   { label: "Add-ons" },
-  { label: "Details" },
   { label: "Terms" },
   { label: "Payment" },
   { label: "Confirm" },

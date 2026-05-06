@@ -97,13 +97,19 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   // ── Navigation ───────────────────────────────────────────────────────────
   setStep: (step: BookingStep) => set({ currentStep: step }),
   nextStep: () =>
-    set((state) => ({
-      currentStep: Math.min(state.currentStep + 1, 7) as BookingStep,
-    })),
+    set((state) => {
+      // Skip step 4 (Details) - go from step 3 (Add-ons) directly to step 5 (Terms)
+      let next = state.currentStep + 1;
+      if (next === 4) next = 5;
+      return { currentStep: Math.min(next, 7) as BookingStep };
+    }),
   prevStep: () =>
-    set((state) => ({
-      currentStep: Math.max(state.currentStep - 1, 1) as BookingStep,
-    })),
+    set((state) => {
+      // Skip step 4 (Details) - go from step 5 (Terms) directly to step 3 (Add-ons)
+      let prev = state.currentStep - 1;
+      if (prev === 4) prev = 3;
+      return { currentStep: Math.max(prev, 1) as BookingStep };
+    }),
 
   loadResourceMap: async () => {
     console.log("loadResourceMap called");

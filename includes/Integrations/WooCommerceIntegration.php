@@ -379,6 +379,9 @@ final class WooCommerceIntegration
             return;
         }
 
+        // Sync billing details from WooCommerce order if booking lacks customer info
+        self::sync_billing_details_to_booking($order, $booking_id, $repo);
+
         if ($booking['status'] === 'pending') {
             $updated = $repo->update_status($booking_id, 'in_review');
             if ($updated) {
@@ -388,6 +391,79 @@ final class WooCommerceIntegration
             }
         } else {
             error_log('SpaceBooking WC: Booking #' . $booking_id . ' already ' . $booking['status'] . ', skipping');
+        }
+    }
+
+    /**
+     * Sync billing details from WooCommerce order to booking.
+     * This allows skipping Step4Details - customer info comes from WC checkout.
+     */
+    private static function sync_billing_details_to_booking($order, int $booking_id, $repo): void
+    {
+        // Get current booking data
+        $booking = $repo->find($booking_id);
+        if (!$booking) {
+            return;
+        }
+
+        // Check if we need to update (booking missing customer info)
+        $needs_update = false;
+        $customer_name = '';
+        $customer_email = '';
+
+        if (empty($booking['customer_name']) || $booking['customer_name'] === 'Guest' || $booking['customer_name'] === '') {
+            // Get billing name from WC order
+            $first_name = $order->get_billing_first_name();
+            $last_name = $order->get_billing_last_name();
+            $customer_name = trim($first_name . ' ' . $last_name);
+
+            // Fallback to shipping name if billing is empty
+            if (empty($customer_name)) {
+                $customer_name = trim($order->get_shipping_first_name() . ' ' . $order->get_shipping_last_name());
+            }
+
+            // Final fallback to guest placeholder
+            if (empty($customer_name)) {
+                $customer_name = 'Guest';
+            }
+            $needs_update = true;
+        } else {
+            $customer_name = $booking['customer_name'];
+        }
+
+        if (empty($booking['customer_email']) || $booking['customer_email'] === '') {
+            // Get billing email from WC order
+            $customer_email = $order->get_billing_email();
+
+            // Final fallback to placeholder if still empty
+            if (empty($customer_email)) {
+                $customer_email = 'customer@checkout.com';
+            }
+            $needs_update = true;
+        } else {
+            $customer_email = $booking['customer_email'];
+        }
+
+        if ($needs_update) {
+            global $wpdb;
+            $result = $wpdb->update(
+                $wpdb->prefix . 'sb_bookings',
+                [
+                    'customer_name' => $customer_name,
+                    'customer_email' => $customer_email,
+                ],
+                ['id' => $booking_id],
+                ['%s', '%s'],
+                ['%d']
+            );
+
+            if ($result !== false) {
+                error_log("SpaceBooking WC: Synced billing details to booking #{$booking_id}: name='{$customer_name}', email='{$customer_email}'");
+            } else {
+                error_log("SpaceBooking WC: Failed to sync billing details to booking #{$booking_id}: " . $wpdb->last_error);
+            }
+        } else {
+            error_log("SpaceBooking WC: Booking #{$booking_id} already has customer info, skipping sync");
         }
     }
 }

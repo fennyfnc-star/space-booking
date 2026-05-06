@@ -89,8 +89,8 @@ final class BookingController extends WP_REST_Controller
 		// DEBUG: Trace received extras
 		error_log('SB_DEBUG BookingController: Received extras from request: ' . json_encode($extras));
 		error_log('SB_DEBUG BookingController: Raw request params: ' . json_encode($request->get_body_params()));
-		$name = sanitize_text_field($request->get_param('customer_name'));
-		$email = sanitize_email($request->get_param('customer_email'));
+		$name = sanitize_text_field($request->get_param('customer_name') ?? '');
+		$email = sanitize_email($request->get_param('customer_email') ?? '');
 		$phone = sanitize_text_field($request->get_param('customer_phone') ?? '');
 		$notes = sanitize_textarea_field($request->get_param('notes') ?? '');
 		$marketing_source = sanitize_text_field($request->get_param('marketing_source') ?? '');
@@ -303,11 +303,11 @@ final class BookingController extends WP_REST_Controller
 			'date' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'start_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'end_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
-			'customer_name' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
+			'customer_name' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'customer_email' => [
-				'required' => true,
+				'required' => false,
 				'sanitize_callback' => 'sanitize_email',
-				'validate_callback' => static fn($v) => is_email($v),
+				'validate_callback' => static fn($v) => empty($v) || is_email($v),
 			],
 			'customer_phone' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'marketing_source' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],

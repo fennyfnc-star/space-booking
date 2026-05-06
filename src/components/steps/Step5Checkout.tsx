@@ -28,7 +28,6 @@ export function Step5Checkout() {
       .getState()
       .selectedItems.find((i) => i.type === "package")?.id;
 
-    // DEBUG: Trace what's being sent
     const currentSelectedExtras = useBookingStore.getState().selectedExtras;
     console.log(
       "SB_DEBUG Step5Checkout: selectedExtras being sent:",
