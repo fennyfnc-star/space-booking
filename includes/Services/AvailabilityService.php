@@ -126,6 +126,14 @@ final class AvailabilityService
 
 		$booked_intervals = $this->repo->get_confirmed_intervals_for_spaces($space_ids, $date);
 
+		// ALSO block slots that are currently pending (non-expired) - prevents double booking race condition
+		$pending_intervals = $this->repo->get_pending_intervals_for_spaces($space_ids, $date);
+		error_log('SB_DEBUG: get_fixed_slots pending_intervals count: ' . count($pending_intervals) . ' for date: ' . $date);
+		if (!empty($pending_intervals)) {
+			error_log('SB_DEBUG: First pending: ' . json_encode($pending_intervals[0]));
+		}
+		$all_blocked = array_merge($booked_intervals, $pending_intervals);
+
 		$space_pre_buf = (int) get_post_meta($primary_id, '_sb_buffer_pre_minutes', true) ?: (int) get_option('sb_buffer_pre_minutes', 0);
 		$space_post_buf = (int) get_post_meta($primary_id, '_sb_buffer_post_minutes', true) ?: (int) get_option('sb_buffer_post_minutes', 0);
 
@@ -137,13 +145,25 @@ final class AvailabilityService
 			$slot_start = $this->add_minutes($slot_data['start_time'], -$pre_buf);
 			$slot_end = $this->add_minutes($slot_data['end_time'], $post_buf);
 
-			$is_available = !self::overlaps($slot_start, $slot_end, $booked_intervals);
+			$is_available = !self::overlaps($slot_start, $slot_end, $all_blocked);
+			$has_pending = self::overlaps($slot_start, $slot_end, $pending_intervals);
+			$has_confirmed = self::overlaps($slot_start, $slot_end, $booked_intervals);
+
+			// Detailed slot status logging
+			$slot_status = $has_confirmed ? 'CONFIRMED' : ($has_pending ? 'PENDING' : 'AVAILABLE');
+			error_log(sprintf('SB_DEBUG: Slot %s-%s → available=%d status=%s (confirmed=%d pending=%d)',
+				$slot_data['start_time'], $slot_data['end_time'],
+				$is_available ? 1 : 0,
+				$slot_status,
+				$has_confirmed ? 1 : 0,
+				$has_pending ? 1 : 0));
 
 			$slots[] = [
 				'slot_id' => $slot_data['slot_id'],
 				'start' => $slot_data['start_time'],
 				'end' => $slot_data['end_time'],
 				'available' => $is_available,
+				'has_pending' => $has_pending,
 				'override_price' => $slot_data['override_price'],
 				'pre_buffer' => $pre_buf,
 				'post_buffer' => $post_buf,
@@ -261,7 +281,15 @@ final class AvailabilityService
 		error_log('AVAIL DEBUG: Generated raw dynamic slots count: ' . count($slots));
 
 		$booked_intervals = $this->repo->get_confirmed_intervals_for_spaces($conflict_ids, $date);
-		error_log('AVAIL DEBUG: Booked intervals count: ' . count($booked_intervals));
+
+		// ALSO block slots that are currently pending (non-expired) - prevents double booking race condition
+		$pending_intervals = $this->repo->get_pending_intervals_for_spaces($conflict_ids, $date);
+		error_log('SB_DEBUG: generate_dynamic_slots pending_intervals: ' . count($pending_intervals) . ' for date: ' . $date . ', conflict_ids: ' . json_encode($conflict_ids));
+		if (!empty($pending_intervals)) {
+			error_log('SB_DEBUG: First pending: ' . json_encode($pending_intervals[0]));
+		}
+		$all_blocked = array_merge($booked_intervals, $pending_intervals);
+		error_log('AVAIL DEBUG: Booked intervals count: ' . count($booked_intervals) . ', pending count: ' . count($pending_intervals));
 
 		[$pre_buf, $post_buf] = $this->resolve_buffers($primary_id);
 		error_log("AVAIL DEBUG: Dynamic buffers pre=$pre_buf post=$post_buf");
@@ -271,14 +299,35 @@ final class AvailabilityService
 				'start' => $this->add_minutes($b['start'], -$pre_buf),
 				'end' => $this->add_minutes($b['end'], $post_buf),
 			];
-		}, $booked_intervals);
+		}, $all_blocked);
+
+		// Also create inflated pending intervals for has_pending flag
+		$inflated_pending = array_map(function ($b) use ($pre_buf, $post_buf) {
+			return [
+				'start' => $this->add_minutes($b['start'], -$pre_buf),
+				'end' => $this->add_minutes($b['end'], $post_buf),
+			];
+		}, $pending_intervals);
 
 		$available_count = 0;
-		$final_slots = array_map(static function (array $slot) use ($inflated_intervals, &$available_count): array {
+		$final_slots = array_map(static function (array $slot) use ($inflated_intervals, $inflated_pending, &$available_count): array {
 			$is_available = !self::overlaps($slot['start'], $slot['end'], $inflated_intervals);
+			$has_pending = self::overlaps($slot['start'], $slot['end'], $inflated_pending);
+			$has_confirmed = !$has_pending && self::overlaps($slot['start'], $slot['end'],
+				array_filter($inflated_intervals, fn($b) => !in_array($b, $inflated_pending)));
+
+			$slot_status = $has_confirmed ? 'CONFIRMED' : ($has_pending ? 'PENDING' : 'AVAILABLE');
+			error_log(sprintf('SB_DEBUG: Slot %s-%s → available=%d status=%s (confirmed=%d pending=%d)',
+				$slot['start'], $slot['end'],
+				$is_available ? 1 : 0,
+				$slot_status,
+				$has_confirmed ? 1 : 0,
+				$has_pending ? 1 : 0));
+
 			if ($is_available)
 				$available_count++;
 			$slot['available'] = $is_available;
+			$slot['has_pending'] = $has_pending;
 			return $slot;
 		}, $slots);
 

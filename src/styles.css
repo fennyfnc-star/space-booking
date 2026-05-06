@@ -369,18 +369,22 @@
 .sb-slot--taken {
   background: var(--sb-bg);
   color: var(--sb-muted);
-  text-decoration: line-through;
-  cursor: not-allowed;
+  cursor: not-allowed !important;
 }
 
 .sb-slot--invalid {
   background: var(--sb-bg);
   color: var(--sb-muted);
-  text-decoration: line-through;
-  cursor: not-allowed;
+  cursor: not-allowed !important;
   user-select: none;
   pointer-events: none;
   opacity: 0.6;
+}
+
+.sb-slot--pending {
+  background: #fff8e1;
+  border-color: #f59e0b;
+  color: #92400e;
 }
 
 /* ── Extras ─────────────────────────────────────────────────── */

@@ -226,16 +226,51 @@ export function Step2Scheduling() {
                         )}
                       </div>
                     </div>
+
                     <div
                       style={{
-                        fontSize: "12px",
-                        padding: "4px 8px",
-                        borderRadius: "4px",
-                        background: slot.available ? "#d4edda" : "#f8d7da",
-                        color: slot.available ? "#155724" : "#721c24",
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        textDecoration: "normal",
                       }}
                     >
-                      {slot.available ? "Available" : "Booked"}
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          // Check has_pending FIRST - pending bookings should show yellow badge
+                          background: slot.has_pending
+                            ? "#fff3cd"
+                            : slot.available
+                              ? "#d4edda"
+                              : "#f8d7da",
+                          color: slot.has_pending
+                            ? "#856404"
+                            : slot.available
+                              ? "#155724"
+                              : "#721c24",
+                        }}
+                      >
+                        {slot.has_pending
+                          ? "Pending"
+                          : slot.available
+                            ? "Available"
+                            : "Booked"}
+                      </div>
+                      {slot.has_pending && (
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "#856404",
+                            marginTop: "4px",
+                          }}
+                        >
+                          Someone is currently booking this slot
+                        </div>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -250,17 +285,34 @@ export function Step2Scheduling() {
                 <div className="sb-slot-grid">
                   {slots.map((slot, i) => {
                     const validStart = isStartValid(i);
+                    const isDisabled = !validStart || !slot.available;
                     return (
                       <button
                         key={slot.start}
-                        className={`sb-slot ${!validStart || !slot.available ? "sb-slot--invalid" : ""} ${selectedStartTime === slot.start ? "sb-slot--selected" : ""}`}
+                        className={`sb-slot ${isDisabled ? "sb-slot--invalid" : ""} ${selectedStartTime === slot.start ? "sb-slot--selected" : ""} ${slot.has_pending ? "sb-slot--pending" : ""}`}
                         onClick={
                           validStart && slot.available
                             ? () => setStartTime(slot.start)
                             : undefined
                         }
+                        title={
+                          slot.has_pending
+                            ? "Someone is currently booking this slot"
+                            : undefined
+                        }
                       >
                         {formatTimeTo12Hour(slot.start)}
+                        {slot.has_pending && (
+                          <span
+                            style={{
+                              fontSize: "9px",
+                              display: "block",
+                              color: "#856404",
+                            }}
+                          >
+                            Pending
+                          </span>
+                        )}
                       </button>
                     );
                   })}

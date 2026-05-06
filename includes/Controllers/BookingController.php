@@ -131,6 +131,15 @@ final class BookingController extends WP_REST_Controller
 			}
 		}
 
+		// Guard: Also check PENDING bookings to prevent double booking
+		$pending = $this->repo->get_pending_intervals_for_spaces($footprint_spaces, $date);
+		error_log('SB_DEBUG: BookingController pending check count: ' . count($pending));
+		foreach ($pending as $p) {
+			if ($start_time < $p['end'] && $end_time > $p['start']) {
+				return new WP_REST_Response(['message' => 'This time slot is currently being booked by another customer. Please choose a different time.'], 409);
+			}
+		}
+
 		// ── Guard: extras inventory ───────────────────────────────────────────
 		if (!empty($extras)) {
 			$inv_check = $this->inventory->validate_extras($extras, $date, $start_time, $end_time);

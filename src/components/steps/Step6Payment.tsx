@@ -154,14 +154,14 @@ export function Step6Payment() {
               {selectedStartTime} – {selectedEndTime}
             </span>
           </div>
-          <div className="sb-summary-row">
+          {/* <div className="sb-summary-row">
             <span>Name</span>
             <span>{String(customerInfo.name || "")}</span>
           </div>
           <div className="sb-summary-row">
             <span>Email</span>
             <span>{String(customerInfo.email || "")}</span>
-          </div>
+          </div> */}
         </div>
 
         <h4>Price Breakdown</h4>

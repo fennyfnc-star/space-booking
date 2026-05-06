@@ -279,6 +279,36 @@ class BookingRepository
 			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
 	}
 
+	/**
+	 * Get pending (non-expired) time intervals for spaces.
+	 * Used to block slots that are currently being booked by another customer.
+	 */
+	public function get_pending_intervals_for_spaces(array $space_ids, string $date): array
+	{
+		if (empty($space_ids)) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
+		$space_ids_params = $space_ids;
+
+		// Get pending bookings: valid & non-expired OR legacy invalid expired_at (= '0000-00-00')
+		// This ensures slots are properly blocked when there's an active pending booking
+		return $wpdb->get_results($wpdb->prepare("
+			SELECT start_time as start, end_time as end
+            FROM {$wpdb->prefix}sb_bookings 
+            WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s 
+            AND status IN ('pending', 'shadow')
+            AND (
+                expired_at > NOW() 
+                OR expired_at = '0000-00-00 00:00:00'
+            )
+            ORDER BY start_time",
+			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
+	}
+
 	public function create_shadow(int $parent_id, int $space_id, string $date, string $start_time, string $end_time): int
 	{
 		global $wpdb;

@@ -76,6 +76,7 @@ export interface TimeSlot {
   override_price?: number;
   pre_buffer?: number;
   post_buffer?: number;
+  has_pending?: boolean; // true if slot has a pending (unpaid) booking that will expire
 }
 
 export interface AvailabilityResponse {
