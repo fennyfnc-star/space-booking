@@ -204,6 +204,8 @@ class BookingRepository
 	{
 		global $wpdb;
 
+		// NOTE: The 'extras' column was removed from insert because it's not in the database schema.
+		// Extras are stored separately in the sb_booking_extras table via save_extras() call below.
 		$result = $wpdb->insert(
 			$wpdb->prefix . 'sb_bookings',
 			[
@@ -221,11 +223,10 @@ class BookingRepository
 				'modifier_price' => isset($data['modifier_price']) ? (float) $data['modifier_price'] : 0.0,
 				'total_price' => isset($data['total_price']) ? (float) $data['total_price'] : 0.0,
 				'notes' => isset($data['notes']) ? $data['notes'] : '',
-				'extras' => !empty($data['extras']) ? wp_json_encode($data['extras']) : '[]',
 				'status' => 'pending',  // Initial status
 				'expired_at' => date('Y-m-d H:i:s', strtotime('+30 minutes')),  // Auto-expire
 			],
-			['%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%f', '%f', '%s', '%s', '%s', '%s']
+			['%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%f', '%f', '%s', '%s', '%s']
 		);
 
 		if (false === $result) {
