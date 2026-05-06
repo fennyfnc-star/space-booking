@@ -18,6 +18,7 @@ final class WooCommerceService
      * @param float $total_price   Total (for validation only)
      * @param int   $booking_id    DB booking ID
      * @return string WC checkout URL
+     * @throws \RuntimeException if WooCommerce is not available
      */
     public function add_booking_to_cart(array $booking_data, float $total_price, int $booking_id): string
     {
@@ -26,11 +27,14 @@ final class WooCommerceService
         $extras = $booking_data['extras'] ?? [];
         $selected_item_ids = $booking_data['selected_item_ids'] ?? [];
 
+        // Validate WooCommerce is available BEFORE any operations
         if (!function_exists('WC') || !WC()) {
+            error_log('SpaceBooking WC: ERROR - WooCommerce not initialized');
             throw new \RuntimeException('WooCommerce not initialized.');
         }
 
         if (WC()->cart === null) {
+            error_log('SpaceBooking WC: ERROR - WooCommerce cart is null');
             throw new \RuntimeException('WooCommerce cart not available.');
         }
 

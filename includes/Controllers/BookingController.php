@@ -230,9 +230,11 @@ final class BookingController extends WP_REST_Controller
 			}
 		}
 
-		// ── Add to WooCommerce cart or session ────────────────────────────────
+		// ── Add to WooCommerce cart or session ──────────────────────────────
 		$checkout_url = wc_get_cart_url();
 		$cart_added = false;
+		$wc_error = null;
+
 		try {
 			$checkout_url = $this->wc->add_booking_to_cart([
 				'space_id' => $space_id,
@@ -253,39 +255,59 @@ final class BookingController extends WP_REST_Controller
 			$cart_added = true;
 			error_log('SpaceBooking: Multi-item booking #' . $booking_id . ' (' . count($selected_item_ids) . ' items) added to cart');
 		} catch (\RuntimeException $e) {
-			error_log('SpaceBooking: Direct cart add failed for #' . $booking_id . ': ' . $e->getMessage());
-			// Fallback transient with full data
-			$pending_data = [
-				'booking_data' => [
-					'space_id' => $space_id,
-					'package_id' => $package_id,
-					'selected_item_ids' => $selected_item_ids,
-					'date' => $date,
-					'start_time' => $start_time,
-					'end_time' => $end_time,
-					'customer_name' => $name,
-					'customer_email' => $email,
-					'extras' => $extras,
-					'items' => $price['items'] ?? [],
-					'extras_breakdown' => $price['extras_breakdown'] ?? [],
-					'breakdown' => $price['breakdown'],
-				],
-				'total_price' => $price['total_price'],
-			];
-			set_transient('sb_pending_checkout_' . $booking_id, $pending_data, 1800);
-			error_log('SpaceBooking: Multi-item #' . $booking_id . ' in transient');
+			$wc_error = $e->getMessage();
+			error_log('SpaceBooking: WooCommerce cart add failed for #' . $booking_id . ': ' . $wc_error);
+		} catch (\Exception $e) {
+			$wc_error = $e->getMessage();
+			error_log('SpaceBooking: ERROR - WooCommerce exception for #' . $booking_id . ': ' . $wc_error);
+		}
+
+		// If WooCommerce failed, store in transient as fallback (only if no error)
+		if (!$cart_added) {
+			try {
+				$pending_data = [
+					'booking_data' => [
+						'space_id' => $space_id,
+						'package_id' => $package_id,
+						'selected_item_ids' => $selected_item_ids,
+						'date' => $date,
+						'start_time' => $start_time,
+						'end_time' => $end_time,
+						'customer_name' => $name,
+						'customer_email' => $email,
+						'extras' => $extras,
+						'items' => $price['items'] ?? [],
+						'extras_breakdown' => $price['extras_breakdown'] ?? [],
+						'breakdown' => $price['breakdown'],
+					],
+					'total_price' => $price['total_price'],
+				];
+				set_transient('sb_pending_checkout_' . $booking_id, $pending_data, 1800);
+				error_log('SpaceBooking: Multi-item #' . $booking_id . ' stored in transient (fallback)');
+			} catch (\Exception $e) {
+				error_log('SpaceBooking: CRITICAL - Failed to store transient for #' . $booking_id . ': ' . $e->getMessage());
+			}
 		}
 
 		$checkout_url = wc_get_checkout_url();
 
 		error_log('SpaceBooking: Booking #' . $booking_id . ' → ' . $checkout_url . ' (direct: ' . ($cart_added ? 'yes' : 'transient') . ')');
 
-		return new WP_REST_Response([
+		// ALWAYS return valid JSON response - even on WooCommerce errors
+		$response_data = [
 			'booking_id' => $booking_id,
 			'checkout_url' => $checkout_url,
 			'price' => $price,
 			'cart_added_directly' => $cart_added,
-		], 201);
+		];
+
+		// Include error info if WooCommerce had issues (but don't fail the request)
+		if ($wc_error) {
+			$response_data['wc_warning'] = $wc_error;
+			error_log('SpaceBooking: Returning response with WC warning: ' . $wc_error);
+		}
+
+		return new WP_REST_Response($response_data, 201);
 	}
 
 	// ── Get single booking ────────────────────────────────────────────────────
