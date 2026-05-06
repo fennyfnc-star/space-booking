@@ -115,7 +115,15 @@ export function Step2Scheduling() {
       .then((res) => {
         console.log("AVAILABILITY RES:", res);
         console.log("slots:", res.slots);
-        setSlots(res.slots);
+        // Sort slots chronologically by start time before storing
+        const sortedSlots = [...res.slots].sort((a, b) => {
+          const timeToMinutes = (t: string) => {
+            const [h, m] = t.split(":").map(Number);
+            return h * 60 + m;
+          };
+          return timeToMinutes(a.start) - timeToMinutes(b.start);
+        });
+        setSlots(sortedSlots);
         setApiResponse(res);
         console.groupEnd();
       })

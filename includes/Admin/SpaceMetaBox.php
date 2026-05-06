@@ -715,6 +715,11 @@ jQuery(document).ready(function($) {
             ];
         }
 
+        // Sort fixed slots chronologically by start_time before saving
+        usort($clean_fixed_slots, function ($a, $b) {
+            return self::time_to_minutes($a['start_time']) <=> self::time_to_minutes($b['start_time']);
+        });
+
         update_post_meta($post_id, '_sb_fixed_slots', $clean_fixed_slots);
 
         // DATE OVERRIDES - validate dates, slots, warn on existing bookings
@@ -794,6 +799,11 @@ jQuery(document).ready(function($) {
                     'capacity' => $capacity
                 ];
             }
+
+            // Sort date slots chronologically by start_time before saving
+            usort($clean_date_slots, function ($a, $b) {
+                return self::time_to_minutes($a['start_time']) <=> self::time_to_minutes($b['start_time']);
+            });
 
             $overrides[$target_date] = ['status' => 'custom', 'slots' => $clean_date_slots];
         }
