@@ -19,9 +19,9 @@ export function Step2Scheduling() {
     getLockedResourceIds, // Use getter to compute fresh each time
   } = useBookingStore();
 
-  // CRITICAL: Use getter to compute fresh locked IDs from selectedItems
-  // This ensures we send the FULL selection group, not just one space
-  const lockedResourceIds = getLockedResourceIds();
+  // NOTE: We don't call getLockedResourceIds() at component scope
+  // because it would get stale on initial render. We always call it
+  // INSIDE useEffect or handlers to get FRESH values.
 
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [apiResponse, setApiResponse] = useState<AvailabilityResponse | null>(
@@ -66,10 +66,11 @@ export function Step2Scheduling() {
     return true;
   };
 
-  // Get first space ID from lockedResourceIds for pricing
+  // Get first space ID - ALWAYS call getter fresh to avoid stale state
   const getFirstSpaceId = (): number => {
-    if (lockedResourceIds && lockedResourceIds.length > 0) {
-      return lockedResourceIds[0];
+    const fresh = getLockedResourceIds();
+    if (fresh && fresh.length > 0) {
+      return fresh[0];
     }
     // Fallback to first selected item
     if (selectedItems.length > 0) {
@@ -78,7 +79,7 @@ export function Step2Scheduling() {
     return 0;
   };
 
-  // Fixed slot selection handler
+  // Fixed slot selection handler - ALWAYS fetch fresh IDs
   const selectFixedSlot = async (slot: TimeSlot) => {
     if (!slot.available) return;
 
@@ -88,15 +89,16 @@ export function Step2Scheduling() {
     if (slot.override_price) {
       setPricePreview(slot.override_price);
     } else {
-      // Fallback to API pricing if no override
+      // ARRAY-ONLY: Always use fresh resource IDs
       setPriceLoading(true);
       try {
         const firstSpaceId = getFirstSpaceId();
+        const freshIds = getLockedResourceIds();
         const pricing = await fetchPricing({
           space_id: firstSpaceId,
           date: selectedDate!,
           start_time: slot.start,
-          item_ids: lockedResourceIds || [],
+          item_ids: freshIds || [],
           end_time: slot.end,
           extras: [],
           package_id: selectedItems.find((i) => i.type === "package")?.id,
@@ -122,13 +124,42 @@ export function Step2Scheduling() {
   // Minimum selectable date = today
   const today = new Date().toISOString().split("T")[0];
 
-  // Always use fetchMultiAvailability with the lockedResourceIds array
+  // ARRAY-ONLY: Load resourceMap ONCE when component mounts
+  // CRITICAL: Wait for resourceMap to BE FULLY LOADED before using getLockedResourceIds
+  const resourceMap = useBookingStore((s) => s.resourceMap);
+  const [isMapReady, setIsMapReady] = useState(false);
+
   useEffect(() => {
-    // Use lockedResourceIds as the array - always use multi-space endpoint
+    if (!resourceMap) {
+      console.log("ARRAY-ONLY: Loading resourceMap...");
+      useBookingStore
+        .getState()
+        .loadResourceMap()
+        .then(() => {
+          console.log("ARRAY-ONLY: ResourceMap loaded, ready");
+          setIsMapReady(true);
+        });
+    } else {
+      setIsMapReady(true);
+    }
+  }, []);
+
+  // GUARDRAIL: Wait for resourceMap to FULLY LOAD before fetching availability
+  // ARRAY-ONLY MANDATE: Must use the ENTIRE array, not single ID
+  // CRITICAL: Re-fetch when EITHER isMapReady OR selectedItems changes
+  useEffect(() => {
+    if (!isMapReady) {
+      console.log("ARRAY-ONLY: Waiting for resourceMap to be ready...");
+      return;
+    }
+
+    // ARRAY-ONLY MANDATE: Always compute fresh IDs from selectedItems
+    // Uses Append/Remove pattern with cumulative group selection
+    const freshSpaceIds = getLockedResourceIds();
+    console.log("PHASE 3 CHECK - Sending Group:", freshSpaceIds);
+    console.log("ARRAY-ONLY: Computed freshSpaceIds:", freshSpaceIds);
     const spaceIds =
-      lockedResourceIds && lockedResourceIds.length > 0
-        ? lockedResourceIds
-        : [];
+      freshSpaceIds && freshSpaceIds.length > 0 ? freshSpaceIds : [];
 
     if (!selectedDate || spaceIds.length === 0) {
       // No spaces selected yet
@@ -138,13 +169,13 @@ export function Step2Scheduling() {
     }
 
     console.group("AVAILABILITY LOAD");
-    // CRITICAL: Log ACTUAL IDs being sent - this will prove whether full union or single ID
-    console.log("fetchAvailability spaceIds:", spaceIds, "date:", selectedDate);
+    // CRITICAL: Log ACTUAL IDs being sent - this proves full union is sent
+    console.log("ARRAY-ONLY: Sending Group:", spaceIds, "date:", selectedDate);
     console.log(
       "DEBUG: selectedItems IDs:",
       selectedItems.map((i) => i.id),
     );
-    console.log("DEBUG: lockedResourceIds (fresh):", lockedResourceIds);
+    console.log("DEBUG: fresh lockedResourceIds:", freshSpaceIds);
     setLoading(true);
     setError("");
     setApiResponse(null);
@@ -178,8 +209,8 @@ export function Step2Scheduling() {
         setError(e.message);
       })
       .finally(() => setLoading(false));
-    // Track selectedItems so we re-fetch when selection changes
-  }, [selectedDate, selectedItems]);
+    // GUARDRAIL: Re-fetch when either resourceMap becomes ready OR selection changes
+  }, [selectedDate, selectedItems, isMapReady]);
 
   // Sequential available end slots starting from minDuration (excluding default)
   const endTimeOptions: TimeSlot[] = [];

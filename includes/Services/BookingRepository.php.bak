@@ -371,14 +371,7 @@ class BookingRepository
 		error_log('SB_DEBUG: get_blocking_intervals SQL: ' . str_replace("\n", ' ', $query));
 		error_log('SB_DEBUG: get_blocking_intervals params: ' . json_encode($space_ids) . ', date: ' . $date);
 
-		$results = $wpdb->get_results($query, ARRAY_A) ?: [];
-		// FIX: Normalize time strings for consistent matching
-		foreach ($results as &$row) {
-			$row['start'] = date('H:i', strtotime($row['start']));
-			$row['end'] = date('H:i', strtotime($row['end']));
-		}
-
-		return $results;
+		return $wpdb->get_results($query, ARRAY_A) ?: [];
 	}
 
 	/**

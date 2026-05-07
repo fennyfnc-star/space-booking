@@ -311,7 +311,34 @@ final class BookingController extends WP_REST_Controller
 			}
 		}
 
-		$checkout_url = wc_get_checkout_url();
+		// SAFE: Get checkout URL with defensive error handling
+		// This was the source of the JSON parse error - wc_get_checkout_url() can return HTML
+		// if WooCommerce is in an inconsistent state
+		try {
+			// Only call wc_get_checkout_url if WC is properly initialized
+			if (function_exists('WC') && WC() && method_exists(WC(), 'get_checkout')) {
+				$checkout_url = wc_get_checkout_url();
+			} else {
+				$checkout_url = home_url('/checkout/');
+				error_log('SpaceBooking: WC not fully initialized, using fallback checkout URL');
+			}
+		} catch (\Exception $e) {
+			// Fallback to a known-safe checkout URL
+			$checkout_url = home_url('/checkout/');
+			error_log('SpaceBooking: wc_get_checkout_url() failed with: ' . $e->getMessage() . ', using fallback');
+		}
+
+		// DEFENSIVE: Validate $checkout_url is actually a string and not HTML
+		if (!is_string($checkout_url) || !filter_var($checkout_url, FILTER_VALIDATE_URL) || strlen($checkout_url) < 10) {
+			error_log('SpaceBooking: CRITICAL - checkout_url is invalid: ' . (is_string($checkout_url) ? substr($checkout_url, 0, 100) : gettype($checkout_url)));
+			$checkout_url = home_url('/checkout/');
+		}
+
+		// DEFENSIVE: Check if the URL looks like HTML (another symptom of the bug)
+		if (is_string($checkout_url) && preg_match('/<[^>]*>/', $checkout_url)) {
+			error_log('SpaceBooking: CRITICAL - checkout_url contains HTML, resetting to fallback');
+			$checkout_url = home_url('/checkout/');
+		}
 
 		error_log('SpaceBooking: Booking #' . $booking_id . ' → ' . $checkout_url . ' (direct: ' . ($cart_added ? 'yes' : 'transient') . ')');
 

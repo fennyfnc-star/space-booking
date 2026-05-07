@@ -287,15 +287,26 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   },
   getLockedResourceIds: () => {
     const state = get();
-    if (!state.resourceMap) return [];
+    console.log("getLockedResourceIds CALLED");
+    console.log(
+      "  selectedItems:",
+      state.selectedItems.map((i) => i.id),
+    );
+    if (!state.resourceMap) {
+      console.log("  NO resourceMap, returning []");
+      return [];
+    }
     const map = state.resourceMap;
     const computeLocked = (items: SelectionItem[]): number[] => {
       const locked = new Set<number>();
       for (const it of items) {
         const footprint = map[it.id]?.footprint ?? [it.id];
+        console.log("  item", it.id, "footprint:", footprint);
         footprint.forEach((id) => locked.add(id));
       }
-      return Array.from(locked);
+      const result = Array.from(locked);
+      console.log("  FINAL lockedResourceIds:", result);
+      return result;
     };
     return computeLocked(state.selectedItems);
   },
