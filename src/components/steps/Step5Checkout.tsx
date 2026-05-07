@@ -20,6 +20,8 @@ export function Step5Checkout() {
   const [error, setError] = useState("");
 
   const handleCheckout = async () => {
+    console.log("SB_DEBUG Step5Checkout: ========== START ==========");
+
     const selectedItemIds = useBookingStore
       .getState()
       .selectedItems.map((item) => item.id);
@@ -29,22 +31,55 @@ export function Step5Checkout() {
       .selectedItems.find((i) => i.type === "package")?.id;
 
     const currentSelectedExtras = useBookingStore.getState().selectedExtras;
+
+    // DEBUG: Console logs for Step 5 - Pre-validation
+    console.log("SB_DEBUG Step5Checkout: spaceId:", spaceId);
+    console.log("SB_DEBUG Step5Checkout: packageId:", packageId);
     console.log(
-      "SB_DEBUG Step5Checkout: selectedExtras being sent:",
-      JSON.stringify(currentSelectedExtras),
+      "SB_DEBUG Step5Checkout: selectedItemIds:",
+      JSON.stringify(selectedItemIds),
     );
     console.log(
       "SB_DEBUG Step5Checkout: selectedItems:",
-      JSON.stringify(selectedItemIds),
+      JSON.stringify(useBookingStore.getState().selectedItems),
+    );
+    console.log(
+      "SB_DEBUG Step5Checkout: selectedExtras:",
+      JSON.stringify(currentSelectedExtras),
+    );
+    console.log("SB_DEBUG Step5Checkout: date:", selectedDate);
+    console.log("SB_DEBUG Step5Checkout: startTime:", selectedStartTime);
+    console.log("SB_DEBUG Step5Checkout: endTime:", selectedEndTime);
+    console.log(
+      "SB_DEBUG Step5Checkout: customerInfo:",
+      JSON.stringify(customerInfo),
     );
 
     if (!spaceId) {
+      console.log("SB_DEBUG Step5Checkout: ERROR - No space selected");
       setError("No space selected.");
       return;
     }
 
+    console.log("SB_DEBUG Step5Checkout: Validation passed, proceeding...");
+
     setLoading(true);
     setError("");
+
+    console.log("SB_DEBUG Step5Checkout: Calling createBooking API...");
+    console.log("SB_DEBUG Step5Checkout: Request payload:", {
+      space_id: spaceId,
+      package_id: packageId,
+      selected_item_ids: selectedItemIds,
+      date: selectedDate,
+      start_time: selectedStartTime,
+      end_time: selectedEndTime,
+      customer_name: String(customerInfo.name || ""),
+      customer_email: String(customerInfo.email || ""),
+      customer_phone: String(customerInfo.phone || ""),
+      notes: String(customerInfo.notes || ""),
+      extras: currentSelectedExtras,
+    });
 
     try {
       const res = await createBooking({
@@ -61,6 +96,11 @@ export function Step5Checkout() {
         extras: currentSelectedExtras,
       });
 
+      console.log(
+        "SB_DEBUG Step5Checkout: createBooking API response:",
+        JSON.stringify(res),
+      );
+
       setCheckoutData({
         checkoutUrl: res.checkout_url,
         bookingId: res.booking_id,
@@ -68,12 +108,22 @@ export function Step5Checkout() {
         breakdown: res.breakdown,
       });
 
+      console.log("SB_DEBUG Step5Checkout: Checkout data set:", {
+        checkoutUrl: res.checkout_url,
+        bookingId: res.booking_id,
+        totalPrice: res.total_price,
+        breakdown: res.breakdown,
+      });
+      console.log("SB_DEBUG Step5Checkout: Redirecting to:", res.checkout_url);
+
       // Redirect to WooCommerce checkout
       window.location.href = res.checkout_url;
     } catch (e) {
+      console.log("SB_DEBUG Step5Checkout: ERROR catch:", e);
       setError((e as Error).message);
     } finally {
       setLoading(false);
+      console.log("SB_DEBUG Step5Checkout: ========== END ==========");
     }
   };
 
