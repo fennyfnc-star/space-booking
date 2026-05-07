@@ -15,17 +15,106 @@ final class WooCommerceOrderActions
             return;
         }
 
-        add_filter('woocommerce_order_actions', [self::class, 'add_test_email_action'], 10, 2);
-        add_action('woocommerce_order_action_send_test_email_action', [self::class, 'handle_test_email']);
+        // Add "Send Booking Confirmation" action to WooCommerce order actions dropdown
+        add_filter('woocommerce_order_actions', [self::class, 'add_booking_confirmation_action'], 10, 2);
+
+        // Handle the booking confirmation action when triggered
+        add_action('woocommerce_order_action_sb_send_booking_confirmation', [self::class, 'handle_booking_confirmation']);
     }
 
     /**
-     * Add "Send Test Email" action to ALL orders.
+     * Add "Send Booking Confirmation" action to ALL orders.
      */
-    public static function add_test_email_action(array $actions, \WC_Order $order): array
+    public static function add_booking_confirmation_action(array $actions, \WC_Order $order): array
     {
-        $actions['send_test_email_action'] = __('Send Confirmation Email', 'space-booking');
+        $actions['sb_send_booking_confirmation'] = __('Send Booking Confirmation', 'space-booking');
         return $actions;
+    }
+
+    /**
+     * Handle Booking Confirmation action.
+     * Sends confirmation email for bookings associated with this order.
+     */
+    public static function handle_booking_confirmation(\WC_Order $order): void
+    {
+        $order_id = $order->get_id();
+
+        // Try to find associated booking(s) by order ID or customer email
+        $repo = new BookingRepository();
+        global $wpdb;
+
+        // Search for bookings by meta_value containing this order ID or customer email
+        $customer_email = $order->get_billing_email();
+        $bookings = $wpdb->get_results($wpdb->prepare("
+            SELECT b.id, b.space_id, b.booking_date, b.start_time, b.end_time, b.status, b.customer_name, b.customer_email
+            FROM {$wpdb->prefix}sb_bookings b
+            LEFT JOIN {$wpdb->prefix}sb_booking_meta bm ON b.id = bm.booking_id AND bm.meta_key = '_wc_order_id'
+            WHERE bm.meta_value = %s OR b.customer_email = %s
+            ORDER BY b.id DESC
+            LIMIT 10
+        ", $order_id, $customer_email), ARRAY_A);
+
+        if (empty($bookings)) {
+            $order->add_order_note(__('No associated bookings found for this order.', 'space-booking'));
+            return;
+        }
+
+        $sent_count = 0;
+        foreach ($bookings as $booking) {
+            // Send confirmation email for each booking
+            $email_sent = self::send_booking_confirmation_email($booking, $order);
+            if ($email_sent) {
+                $sent_count++;
+            }
+        }
+
+        $order->add_order_note(sprintf(
+            __('Booking confirmation(s) sent: %d email(s).', 'space-booking'),
+            $sent_count
+        ));
+    }
+
+    /**
+     * Send booking confirmation email.
+     */
+    private static function send_booking_confirmation_email(array $booking, \WC_Order $order): bool
+    {
+        $booking_id = $booking['id'];
+        $space_id = $booking['space_id'];
+        $space_title = get_the_title($space_id) ?: 'Space';
+
+        $to = $order->get_billing_email();
+        $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
+
+        $subject = get_option('sb_confirmation_email_subject', 'YourBooking is Confirmed!');
+        if (empty($subject)) {
+            $subject = 'Your Booking is Confirmed - ' . $space_title;
+        }
+
+        $subject = str_replace(
+            ['{space_title}', '{booking_date}', '{start_time}'],
+            [$space_title, $booking['booking_date'], $booking['start_time']],
+            $subject
+        );
+
+        // Build email content
+        $message = '<h2>Hello ' . esc_html($customer_name) . ',</h2>';
+        $message .= '<p>Your booking has been confirmed!</p>';
+        $message .= '<h3>Booking Details</h3>';
+        $message .= '<ul>';
+        $message .= '<li><strong>Space:</strong> ' . esc_html($space_title) . '</li>';
+        $message .= '<li><strong>Date:</strong> ' . esc_html($booking['booking_date']) . '</li>';
+        $message .= '<li><strong>Time:</strong> ' . esc_html($booking['start_time']) . ' - ' . esc_html($booking['end_time']) . '</li>';
+        $message .= '<li><strong>Booking ID:</strong> ' . $booking_id . '</li>';
+        $message .= '</ul>';
+
+        // Add order total
+        $message .= '<p><strong>Total Paid:</strong> ' . $order->get_formatted_order_total() . '</p>';
+        $message .= '<p>Thank you for your booking!</p>';
+
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+
+        return wp_mail($to, $subject, $message, $headers);
     }
 
     /**

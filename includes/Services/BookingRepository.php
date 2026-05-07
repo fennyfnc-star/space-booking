@@ -255,7 +255,7 @@ class BookingRepository
 		return $wpdb->get_results($wpdb->prepare(
 			"SELECT start_time as start, end_time as end
              FROM {$wpdb->prefix}sb_bookings 
-             WHERE space_id = %d AND booking_date = %s AND status IN ('confirmed', 'in_review', 'shadow')
+             WHERE space_id = %d AND booking_date = %s AND status IN ('confirmed', 'in_review')
              ORDER BY start_time",
 			$space_id, $date
 		), ARRAY_A) ?: [];
@@ -275,7 +275,7 @@ class BookingRepository
 		return $wpdb->get_results($wpdb->prepare("
 			SELECT start_time as start, end_time as end
             FROM {$wpdb->prefix}sb_bookings 
-            WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s AND status IN ('confirmed', 'in_review', 'shadow')
+            WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s AND status IN ('confirmed', 'in_review')
             ORDER BY start_time",
 			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
 	}
@@ -301,7 +301,7 @@ class BookingRepository
 			SELECT start_time as start, end_time as end
             FROM {$wpdb->prefix}sb_bookings 
             WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s 
-            AND status IN ('pending', 'shadow')
+            AND status = 'pending'
             AND (
                 expired_at > NOW() 
                 OR expired_at = '0000-00-00 00:00:00'
@@ -310,26 +310,78 @@ class BookingRepository
 			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
 	}
 
-	public function create_shadow(int $parent_id, int $space_id, string $date, string $start_time, string $end_time): int
+	/**
+	 * UNIFIED: Get ALL blocking intervals for spaces.
+	 * SIMPLE APPROACH - No subqueries needed!
+	 *
+	 * The space_id column is the ultimate truth. If a space's ID appears in the
+	 * space_id column (whether as lead or shadow), it's blocked for that time.
+	 *
+	 * When booking A+B+C:
+	 * - Row 1: space_id=A (lead)
+	 * - Row 2: space_id=B (shadow)
+	 * - Row 3: space_id=C (shadow)
+	 *
+	 * Querying WHERE space_id=A finds Row 1 (no subquery needed!)
+	 */
+	public function get_blocking_intervals(array $space_ids, string $date): array
+	{
+		if (empty($space_ids)) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
+		$space_ids_params = $space_ids;
+
+		// Simple query - just check space_id directly!
+		// No need to check parent_booking_id relationships.
+		// If space A's ID is in space_id column, it's BLOCKED.
+		// UNIFIED: Remove shadow status - only confirmed/in_review and pending (non-expired) block
+		$query = $wpdb->prepare("
+			SELECT start_time as start, end_time as end
+			FROM {$wpdb->prefix}sb_bookings
+			WHERE space_id IN ({$space_ids_placeholder}) 
+			AND booking_date = %s 
+			AND (
+				status IN ('confirmed', 'in_review')
+				OR (status = 'pending' AND (expired_at > NOW() OR expired_at = '0000-00-00 00:00:00'))
+			)
+			ORDER BY start_time",
+			...array_merge($space_ids_params, [$date]));
+
+		error_log('SB_DEBUG: get_blocking_intervals query built for spaces: ' . json_encode($space_ids) . ', date: ' . $date);
+
+		return $wpdb->get_results($query, ARRAY_A) ?: [];
+	}
+
+	/**
+	 * UNIFIED: Create additional booking row for multi-space booking.
+	 * This replaces the old "shadow booking" concept with a simple unified model.
+	 * Each space gets its own row, all linked by the same order_id for group tracking.
+	 */
+	public function create_booking_row(array $data): int
 	{
 		global $wpdb;
 
 		$result = $wpdb->insert(
 			$wpdb->prefix . 'sb_bookings',
 			[
-				'space_id' => $space_id,
-				'parent_booking_id' => $parent_id,
-				'booking_date' => $date,
-				'start_time' => $start_time,
-				'end_time' => $end_time,
-				'status' => 'shadow',
-				'expired_at' => date('Y-m-d H:i:s', strtotime('+30 minutes')),  // Same TTL as parent
+				'space_id' => $data['space_id'],
+				'package_id' => $data['package_id'] ?? null,
+				'order_id' => $data['order_id'] ?? null,
+				'booking_date' => $data['booking_date'],
+				'start_time' => $data['start_time'],
+				'end_time' => $data['end_time'],
+				'status' => $data['status'] ?? 'pending',
+				'expired_at' => $data['expired_at'] ?? date('Y-m-d H:i:s', strtotime('+30 minutes')),
 			],
-			['%d', '%d', '%s', '%s', '%s', '%s', '%s']
+			['%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s']
 		);
 
 		if (false === $result) {
-			throw new \RuntimeException('Failed to create shadow booking: ' . $wpdb->last_error);
+			throw new \RuntimeException('Failed to create booking row: ' . $wpdb->last_error);
 		}
 
 		return $wpdb->insert_id;

@@ -122,8 +122,9 @@ final class BookingController extends WP_REST_Controller
 		}
 
 		// ── Guard: time window still available (check ALL selected spaces) ──
-		$avail = new \SpaceBooking\Services\AvailabilityService();
-		$footprint_spaces = $avail->get_conflict_groups($selected_item_ids);
+		// FIXED: Use selected_item_ids directly instead of get_conflict_groups()
+		// This ensures we check availability for ALL selected spaces, not just those with resource dependencies.
+		$footprint_spaces = $selected_item_ids;
 		$booked = $this->repo->get_confirmed_intervals_for_spaces($footprint_spaces, $date);
 		foreach ($booked as $b) {
 			if ($start_time < $b['end'] && $end_time > $b['start']) {
@@ -218,15 +219,25 @@ final class BookingController extends WP_REST_Controller
 			return new WP_REST_Response(['message' => 'Could not save booking.'], 500);
 		}
 
-		// ── Bidirectional shadows for full selection footprint ──────────────────
-		$avail = new \SpaceBooking\Services\AvailabilityService();
-		$footprint = $avail->get_conflict_groups($selected_item_ids);
-		$shadow_targets = array_values(array_diff($footprint, [$lead_space_id]));
-		foreach ($shadow_targets as $sid) {
+		// ── UNIFIED: Create additional rows for all selected spaces ────────
+		// NEW ARCHITECTURE: Instead of shadow bookings, we create individual rows
+		// for each selected space_id. All rows get the same order_id for tracking.
+		// This ensures simple space_id-based queries work for availability.
+		$other_spaces = array_values(array_diff($selected_item_ids, [$lead_space_id]));
+		foreach ($other_spaces as $sid) {
 			try {
-				$this->repo->create_shadow($booking_id, $sid, $date, $start_time, $end_time);
+				$this->repo->create_booking_row([
+					'space_id' => $sid,
+					'package_id' => $package_id,
+					'booking_date' => $date,
+					'start_time' => $start_time,
+					'end_time' => $end_time,
+					'order_id' => $booking_id,  // Link to lead row for group tracking
+					'status' => 'pending',
+					'expired_at' => date('Y-m-d H:i:s', strtotime('+30 minutes')),
+				]);
 			} catch (\RuntimeException $e) {
-				error_log('Failed to create shadow for booking #' . $booking_id . ' space ' . $sid . ': ' . $e->getMessage());
+				error_log('Failed to create additional row for booking #' . $booking_id . ' space ' . $sid . ': ' . $e->getMessage());
 			}
 		}
 

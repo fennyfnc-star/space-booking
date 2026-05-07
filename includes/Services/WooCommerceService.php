@@ -202,7 +202,7 @@ final class WooCommerceService
             ));
         }
 
-        error_log('SpaceBooking WC: Price drift check PASSED - expected: $%s, actual: $%s', $expected_total, $actual_total);
+        error_log(sprintf('SpaceBooking WC: Price drift check PASSED - expected: $%s, actual: $%s', $expected_total, $actual_total));
 
         return wc_get_checkout_url();
     }

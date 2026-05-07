@@ -41,20 +41,20 @@ final class WooCommerceIntegration
         // add_action('woocommerce_order_action_send_sb_confirmation_email', [self::class, 'handle_confirmation_action'], 10, 1);
     }
 
-    public static function add_confirmation_action($actions, $order)
-    {
-        if (!$order instanceof \WC_Order) {
-            return $actions;
-        }
+    // public static function add_confirmation_action($actions, $order)
+    // {
+    //     if (!$order instanceof \WC_Order) {
+    //         return $actions;
+    //     }
 
-        $booking_id = $order->get_meta('_sb_booking_id');
-        if (!$booking_id) {
-            return $actions;
-        }
+    //     $booking_id = $order->get_meta('_sb_booking_id');
+    //     if (!$booking_id) {
+    //         return $actions;
+    //     }
 
-        $actions['send_sb_confirmation_email'] = 'Send Booking Confirmation Email';
-        return $actions;
-    }
+    //     $actions['send_sb_confirmation_email'] = 'Send Booking Confirmation Email';
+    //     return $actions;
+    // }
 
     public static function handle_confirmation_action($order)
     {
