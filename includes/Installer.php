@@ -34,6 +34,7 @@ final class Installer
 			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			space_id        BIGINT UNSIGNED NOT NULL,
 			package_id      BIGINT UNSIGNED DEFAULT NULL,
+			order_id       BIGINT UNSIGNED DEFAULT NULL,
 			customer_name   VARCHAR(191)    NOT NULL,
 			customer_email  VARCHAR(191)    NOT NULL,
 			customer_phone  VARCHAR(50)     DEFAULT NULL,
@@ -106,6 +107,7 @@ notes           TEXT            DEFAULT NULL,
 		(new \SpaceBooking\Migrations\AddParentBookingId())->run();
 		(new \SpaceBooking\Migrations\AddBookingMeta())->run();
 		(new \SpaceBooking\Migrations\MakeCustomerFieldsOptional())->run();
+		(new \SpaceBooking\Migrations\AddOrderId())->run();
 
 		update_option('sb_db_version', SB_VERSION);
 	}
