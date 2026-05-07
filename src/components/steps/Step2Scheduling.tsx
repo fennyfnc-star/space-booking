@@ -456,18 +456,28 @@ export function Step2Scheduling() {
                 No availability for this date.
               </p>
               <p style={{ marginBottom: "4px" }}>
-                Reason:{" "}
-                {blockers.map((b, i) => (
-                  <span key={b.id}>
-                    {i > 0 &&
-                      blockers.length > 1 &&
-                      (i === blockers.length - 1 ? " and " : ", ")}
-                    <strong>{b.title}</strong> is
-                    {b.reason === "fully_booked"
-                      ? " fully booked"
-                      : " not available at this time"}
+                {blockers.length === 1 ? (
+                  // Single blocker - direct message
+                  <span>
+                    <strong>{blockers[0].title}</strong> is not available.
+                    Please choose a different date or space.
                   </span>
-                ))}
+                ) : (
+                  // Multiple blockers - list them
+                  <span>
+                    {blockers.map((b, i) => (
+                      <span key={b.id}>
+                        {i > 0 && i === blockers.length - 1
+                          ? " and "
+                          : i > 0
+                            ? ", "
+                            : ""}
+                        <strong>{b.title}</strong>
+                      </span>
+                    ))}{" "}
+                    are not available. Please choose a different date or spaces.
+                  </span>
+                )}
               </p>
               <p
                 style={{
