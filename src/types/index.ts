@@ -79,15 +79,27 @@ export interface TimeSlot {
   has_pending?: boolean; // true if slot has a pending (unpaid) booking that will expire
 }
 
+// NEW: Blocker info for multi-space availability
+export interface BlockerInfo {
+  id: number;
+  title: string;
+  reason: "fully_booked" | "limited_availability";
+}
+
 export interface AvailabilityResponse {
   date: string;
-  space_id: number;
+  space_id?: number; // For single space
+  space_ids?: number[]; // For multi-space
   open_time: string | null;
   close_time: string | null;
   slots: TimeSlot[];
   has_fixed_slots: boolean;
   is_fixed_slots: boolean;
   message?: string;
+  // NEW: Multi-space fields
+  is_multi?: boolean;
+  is_intersection?: boolean;
+  blockers?: BlockerInfo[];
 }
 
 export interface PriceBreakdownItem {

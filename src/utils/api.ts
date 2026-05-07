@@ -48,6 +48,14 @@ export const fetchAvailability = (primarySpaceId: number, date: string) =>
     `/availability?space_id=${primarySpaceId}&date=${date}`,
   );
 
+// NEW: Multi-space availability with intersection check
+export const fetchMultiAvailability = (spaceIds: number[], date: string) => {
+  const qs = new URLSearchParams();
+  qs.set("date", date);
+  spaceIds.forEach((id) => qs.append("space_ids[]", String(id)));
+  return apiFetch<AvailabilityResponse>(`/availability/multi?${qs.toString()}`);
+};
+
 // ── Extras ────────────────────────────────────────────────────────────────────
 
 export const fetchExtras = (

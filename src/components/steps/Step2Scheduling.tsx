@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
-import { fetchAvailability } from "@/utils/api";
+import { fetchAvailability, fetchMultiAvailability } from "@/utils/api";
 import type { AvailabilityResponse, TimeSlot } from "@/types";
 
 import { fetchPricing } from "@/utils/api";
@@ -8,7 +8,7 @@ import { fetchPricing } from "@/utils/api";
 export function Step2Scheduling() {
   const {
     selectedItems,
-    lockedResourceIds,
+    lockedResourceIds, // NEW: includes all locked IDs for multi-space
     selectedDate,
     selectedStartTime,
     selectedEndTime,
@@ -28,6 +28,9 @@ export function Step2Scheduling() {
   const [error, setError] = useState("");
   const [pricePreview, setPricePreview] = useState(0);
   const [priceLoading, setPriceLoading] = useState(false);
+  const [blockers, setBlockers] = useState<
+    { id: number; title: string; reason?: string }[]
+  >([]); // NEW: blocker info
 
   const timeToMinutes = (timeStr: string): number => {
     const [h, m] = timeStr.split(":").map(Number);
@@ -100,6 +103,15 @@ export function Step2Scheduling() {
     }
   }, [selectedStartTime, slots, minDuration, hasFixedSlots]);
 
+  // NEW: Determine if multi-space mode
+  const isMultiSpace = lockedResourceIds && lockedResourceIds.length > 1;
+  const activeSpaceIds =
+    lockedResourceIds && lockedResourceIds.length > 0
+      ? lockedResourceIds
+      : getPrimarySpaceId()
+        ? [getPrimarySpaceId()!]
+        : [];
+
   // Minimum selectable date = today
   const today = new Date().toISOString().split("T")[0];
 
@@ -107,14 +119,34 @@ export function Step2Scheduling() {
     const spaceId = getPrimarySpaceId();
     if (!selectedDate || spaceId === null) return;
     console.group("AVAILABILITY LOAD");
-    console.log("fetchAvailability spaceId:", spaceId, "date:", selectedDate);
+    console.log(
+      "fetchAvailability spaceIds:",
+      activeSpaceIds,
+      "date:",
+      selectedDate,
+      "isMultiSpace:",
+      isMultiSpace,
+    );
     setLoading(true);
     setError("");
     setApiResponse(null);
-    fetchAvailability(spaceId, selectedDate)
+    setBlockers([]);
+
+    // NEW: Use multi-space endpoint when multiple spaces selected
+    const availabilityPromise = isMultiSpace
+      ? fetchMultiAvailability(activeSpaceIds, selectedDate)
+      : fetchAvailability(spaceId, selectedDate);
+
+    availabilityPromise
       .then((res) => {
         console.log("AVAILABILITY RES:", res);
         console.log("slots:", res.slots);
+
+        // NEW: Extract blockers for multi-space
+        if (res.blockers && res.blockers.length > 0) {
+          setBlockers(res.blockers);
+        }
+
         // Sort slots chronologically by start time before storing
         const sortedSlots = [...res.slots].sort((a, b) => {
           const timeToMinutes = (t: string) => {
@@ -132,7 +164,7 @@ export function Step2Scheduling() {
         setError(e.message);
       })
       .finally(() => setLoading(false));
-  }, [selectedDate, getPrimarySpaceId()]);
+  }, [selectedDate, getPrimarySpaceId(), isMultiSpace]); // NEW: Include isMultiSpace
 
   // Sequential available end slots starting from minDuration (excluding default)
   const endTimeOptions: TimeSlot[] = [];
@@ -372,9 +404,42 @@ export function Step2Scheduling() {
       )}
 
       {!loading && selectedDate && slots.length === 0 && (
-        <p className="sb-empty">
-          No availability for this date. Please choose another day.
-        </p>
+        <div className="sb-empty">
+          {blockers && blockers.length > 0 ? (
+            <>
+              <p style={{ fontWeight: 600, marginBottom: "8px" }}>
+                No availability for this date.
+              </p>
+              <p style={{ marginBottom: "4px" }}>
+                Reason:{" "}
+                {blockers.map((b, i) => (
+                  <span key={b.id}>
+                    {i > 0 &&
+                      blockers.length > 1 &&
+                      (i === blockers.length - 1 ? " and " : ", ")}
+                    <strong>{b.title}</strong> is
+                    {b.reason === "fully_booked"
+                      ? " fully booked"
+                      : " not available at this time"}
+                  </span>
+                ))}
+              </p>
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "var(--sb-muted)",
+                  marginTop: "8px",
+                }}
+              >
+                Please choose a different date or different spaces.
+              </p>
+            </>
+          ) : apiMessage ? (
+            <p>{apiMessage}</p>
+          ) : (
+            <p>No availability for this date. Please choose another day.</p>
+          )}
+        </div>
       )}
 
       <div className="sb-step__actions">

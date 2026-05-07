@@ -92,6 +92,146 @@ final class AvailabilityService
 	}
 
 	/**
+	 * NEW: Get INTERSECTION of available slots for multiple spaces.
+	 * Returns only slots that are available in ALL selected spaces.
+	 * Also identifies which spaces are blocking availability.
+	 *
+	 * @param array $space_ids Array of space IDs to check
+	 * @param string $date Date string Y-m-d
+	 * @param int $step_mins Slot interval in minutes
+	 * @return array {
+	 *   'slots' => array of common available slots,
+	 *   'blockers' => array of blocker space info [{id, title, reason}],
+	 *   'is_intersection' => bool
+	 * }
+	 */
+	public function get_intersection_slots(array $space_ids, string $date, int $step_mins = 60): array
+	{
+		if (empty($space_ids)) {
+			return ['slots' => [], 'blockers' => [], 'is_intersection' => false];
+		}
+
+		// Single space: use existing method
+		if (count($space_ids) === 1) {
+			$slots_result = $this->get_slots($space_ids[0], $date, $step_mins);
+			return [
+				'slots' => $slots_result['slots'],
+				'blockers' => [],
+				'is_intersection' => false
+			];
+		}
+
+		error_log('AVAIL INTERSECTION: Checking ' . count($space_ids) . ' spaces for common slots');
+
+		// Get slots for EACH space individually
+		$per_space_slots = [];
+		$available_counts = [];
+
+		foreach ($space_ids as $space_id) {
+			$slots_result = $this->get_slots($space_id, $date, $step_mins);
+			$raw_slots = $slots_result['slots'];
+
+			// Filter to only available slots for this space
+			$available = array_filter($raw_slots, fn($s) => !empty($s['available']));
+
+			$per_space_slots[$space_id] = array_values($available);
+			$available_counts[$space_id] = count($available);
+
+			error_log("AVAIL INTERSECTION: Space $space_id has " . count($available) . ' available slots');
+		}
+
+		// Identify blockers (spaces with NO availability)
+		$blockers = [];
+		foreach ($space_ids as $space_id) {
+			if ($available_counts[$space_id] === 0) {
+				$title = get_the_title($space_id) ?: "Space #$space_id";
+				$blockers[] = [
+					'id' => $space_id,
+					'title' => $title,
+					'reason' => 'fully_booked'
+				];
+				error_log("AVAIL INTERSECTION: BLOCKER - Space $space_id ($title) has no availability");
+			}
+		}
+
+		// If any space has no slots, return empty with blockers
+		if (!empty($blockers)) {
+			return [
+				'slots' => [],
+				'blockers' => $blockers,
+				'is_intersection' => true
+			];
+		}
+
+		// Find INTERSECTION: slots available in ALL spaces
+		// Normalize slot keys for comparison (use start-end as key)
+		$common_slot_keys = null;
+
+		foreach ($space_ids as $space_id) {
+			$slot_keys = [];
+			foreach ($per_space_slots[$space_id] as $slot) {
+				$key = $slot['start'] . '-' . $slot['end'];
+				$slot_keys[$key] = $slot;
+			}
+
+			if ($common_slot_keys === null) {
+				$common_slot_keys = array_keys($slot_keys);
+			} else {
+				$common_slot_keys = array_intersect($common_slot_keys, array_keys($slot_keys));
+			}
+		}
+
+		// Build common slots list
+		$common_slots = [];
+		if (!empty($common_slot_keys)) {
+			// Use first space's slot data as template
+			$first_space = $space_ids[0];
+			$first_slots_by_key = [];
+			foreach ($per_space_slots[$first_space] as $slot) {
+				$key = $slot['start'] . '-' . $slot['end'];
+				$first_slots_by_key[$key] = $slot;
+			}
+
+			foreach ($common_slot_keys as $key) {
+				if (isset($first_slots_by_key[$key])) {
+					$common_slots[] = $first_slots_by_key[$key];
+				}
+			}
+		}
+
+		// Check for partial blockers (spaces with some unavailable slots)
+		$min_available = min($available_counts);
+		if ($min_available > 0 && count($common_slots) === 0) {
+			// All spaces have some slots, but no common overlap
+			foreach ($space_ids as $space_id) {
+				if ($available_counts[$space_id] === $min_available && !isset(array_combine($space_ids, $available_counts)[$space_id])) {
+					// Already counted as full blocker
+				}
+			}
+			// The spaces with the fewest slots are causing the issue
+			$min_count = $min_available;
+			foreach ($space_ids as $space_id) {
+				if ($available_counts[$space_id] === $min_count && !in_array($space_id, array_column($blockers, 'id'))) {
+					$title = get_the_title($space_id) ?: "Space #$space_id";
+					$blockers[] = [
+						'id' => $space_id,
+						'title' => $title,
+						'reason' => 'limited_availability'
+					];
+				}
+			}
+		}
+
+		error_log('AVAIL INTERSECTION: Found ' . count($common_slots) . ' common slots from ' . count($space_ids) . ' spaces');
+
+		return [
+			'slots' => $common_slots,
+			'blockers' => $blockers,
+			'is_intersection' => true
+		];
+	}
+
+	/**
 	 * New fixed slots logic - load from meta, check availability against booked
 	 */
 	public function get_fixed_slots(array|int $space_ids, string $date): array

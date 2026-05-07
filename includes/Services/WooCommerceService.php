@@ -40,6 +40,11 @@ final class WooCommerceService
 
         error_log('SpaceBooking WC: Creating ' . count($items) . ' item products + ' . count($extras) . ' extras for booking #' . $booking_id);
 
+        // STRENGTHENED: Price drift prevention - validate cart total before adding items
+        $expected_total = $total_price;
+        $cart_total_before = WC()->cart->get_cart_total('edit');
+        error_log('SpaceBooking WC: Price drift check - expected total: $' . $expected_total . ', cart before: $' . $cart_total_before);
+
         // Helper to create consistent virtual product
         $create_product = function ($name, $price, $item_breakdown = [], $extra_id = 0, $start_time = '', $end_time = '', $duration_hours = 0, $thumbnail_url = '') use ($booking_id, $booking_data) {
             $product = new WC_Product_Simple();
@@ -179,6 +184,25 @@ final class WooCommerceService
         }
 
         error_log('SpaceBooking WC: Booking #' . $booking_id . ' fully added (' . $added_count . ' line items) | Cart total: ' . WC()->cart->get_cart_total());
+
+        // STRENGTHENED: Price drift prevention - validate cart total AFTER adding items
+        $actual_total = (float) WC()->cart->get_total('edit');
+        $price_difference = abs($actual_total - $expected_total);
+
+        // Allow small tolerance for tax calculations (0.01)
+        if ($price_difference > 0.01) {
+            error_log('SpaceBooking WC: CRITICAL PRICE DRIFT - Expected: $' . $expected_total . ', Actual: $' . $actual_total . ', Diff: $' . $price_difference);
+
+            // Clear the cart and throw error to prevent processing
+            WC()->cart->empty_cart();
+            throw new \RuntimeException(sprintf(
+                'Price validation failed. Expected total: £%.2f, but cart total: £%.2f. Please refresh and try again.',
+                $expected_total,
+                $actual_total
+            ));
+        }
+
+        error_log('SpaceBooking WC: Price drift check PASSED - expected: $%s, actual: $%s', $expected_total, $actual_total);
 
         return wc_get_checkout_url();
     }
