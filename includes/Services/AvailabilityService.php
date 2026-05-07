@@ -96,6 +96,8 @@ final class AvailabilityService
 	 * Returns only slots that are available in ALL selected spaces.
 	 * Also identifies which spaces are blocking availability.
 	 *
+	 * NEW: Also checks GLOBAL resources (Bouncy Castles, etc) that block across ALL spaces.
+	 *
 	 * @param array $space_ids Array of space IDs to check
 	 * @param string $date Date string Y-m-d
 	 * @param int $step_mins Slot interval in minutes
@@ -111,9 +113,68 @@ final class AvailabilityService
 			return ['slots' => [], 'blockers' => [], 'is_intersection' => false];
 		}
 
-		// Single space: use existing method
+		// NEW: Check global resources that block across ALL spaces
+		// Global resources are booked extras (sb_extra) with _sb_is_global_resource = 1
+		$global_blockers = $this->get_global_resource_blockers($date, '10:00', '12:00');
+		if (!empty($global_blockers)) {
+			// Global resource is booked - BLOCK all spaces
+			$blockers = [];
+			foreach ($global_blockers as $resource) {
+				$title = get_the_title($resource['space_id']) ?: "Global Resource #{$resource['space_id']}";
+				$blockers[] = [
+					'id' => $resource['space_id'],
+					'title' => $title,
+					'reason' => 'global_resource',
+					'message' => "Reason: {$title} is already booked for this time."
+				];
+			}
+			return [
+				'slots' => [],
+				'blockers' => $blockers,
+				'is_intersection' => true
+			];
+		}
+
+		// FIXED: For ALL space checks (including single), detect blockers
+		// This ensures blocker messages are returned even for single-space queries
+		$primary_id = $space_ids[0] ?? 0;
+		$slots_result = $this->get_slots($primary_id, $date, $step_mins);
+		$raw_slots = $slots_result['slots'] ?? [];
+
+		// Check if there are any blocked slots - that's our signal for blockers
+		$has_blocked = false;
+		foreach ($raw_slots as $slot) {
+			if (empty($slot['available'])) {
+				$has_blocked = true;
+				break;
+			}
+		}
+
+		// If single space and has blocked slots, return blockers
+		if (count($space_ids) === 1 && $has_blocked) {
+			$blocking_intervals = $this->repo->get_blocking_intervals($space_ids, $date);
+			$blockers = [];
+
+			foreach ($blocking_intervals as $block) {
+				$title = get_the_title($primary_id) ?: "Space #$primary_id";
+				$blockers[] = [
+					'id' => $primary_id,
+					'title' => $title,
+					'reason' => 'booked',
+					'message' => "Reason: {$title} is already booked for this time."
+				];
+				break;  // Only need one blocker entry
+			}
+
+			return [
+				'slots' => array_filter($raw_slots, fn($s) => !empty($s['available'])),
+				'blockers' => $blockers,
+				'is_intersection' => true
+			];
+		}
+
+		// Single space with no blocks - use existing behavior
 		if (count($space_ids) === 1) {
-			$slots_result = $this->get_slots($space_ids[0], $date, $step_mins);
 			return [
 				'slots' => $slots_result['slots'],
 				'blockers' => [],
@@ -577,5 +638,49 @@ final class AvailabilityService
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * NEW: Get global resources that are booked for the given time.
+	 * Global resources (Bouncy Castles, Projectors, etc) block across ALL spaces.
+	 * They are stored in sb_bookings table with space_id = extra_id.
+	 *
+	 * @param string $date Y-m-d
+	 * @param string $start_time H:i
+	 * @param string $end_time H:i
+	 * @return array Array of booked global resource space_ids
+	 */
+	private function get_global_resource_blockers(string $date, string $start_time, string $end_time): array
+	{
+		global $wpdb;
+
+		// Find all extras marked as global resources
+		$global_resources = $wpdb->get_col("
+			SELECT p.ID 
+			FROM {$wpdb->posts} p
+			JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+			WHERE p.post_type = 'sb_extra'
+			AND p.post_status = 'publish'
+			AND pm.meta_key = '_sb_is_global_resource'
+			AND pm.meta_value = '1'
+		");
+
+		if (empty($global_resources)) {
+			return [];
+		}
+
+		// Check if any of these global resources are booked
+		$placeholders = implode(',', array_fill(0, count($global_resources), '%d'));
+		$results = $wpdb->get_results($wpdb->prepare("
+			SELECT DISTINCT space_id 
+			FROM {$wpdb->prefix}sb_bookings 
+			WHERE space_id IN ({$placeholders})
+			AND booking_date = %s 
+			AND status IN ('confirmed', 'in_review')
+			AND start_time < %s 
+			AND end_time > %s
+		", array_merge($global_resources, [$date, $end_time, $start_time])), ARRAY_A);
+
+		return $results ?: [];
 	}
 }

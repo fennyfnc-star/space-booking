@@ -223,16 +223,27 @@ final class BookingController extends WP_REST_Controller
 		// NEW ARCHITECTURE: Instead of shadow bookings, we create individual rows
 		// for each selected space_id. All rows get the same order_id for tracking.
 		// This ensures simple space_id-based queries work for availability.
+
+		// FIXED: Update lead row's order_id first, then create additional rows
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->prefix . 'sb_bookings',
+			['order_id' => $booking_id],
+			['id' => $booking_id],
+			['%d'],
+			['%d']
+		);
+
 		$other_spaces = array_values(array_diff($selected_item_ids, [$lead_space_id]));
 		foreach ($other_spaces as $sid) {
 			try {
 				$this->repo->create_booking_row([
 					'space_id' => $sid,
 					'package_id' => $package_id,
+					'order_id' => $booking_id,  // Link to lead row for group tracking
 					'booking_date' => $date,
 					'start_time' => $start_time,
 					'end_time' => $end_time,
-					'order_id' => $booking_id,  // Link to lead row for group tracking
 					'status' => 'pending',
 					'expired_at' => date('Y-m-d H:i:s', strtotime('+30 minutes')),
 				]);
