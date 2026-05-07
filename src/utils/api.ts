@@ -49,7 +49,9 @@ export const fetchAvailability = (primarySpaceId: number, date: string) =>
   );
 
 // NEW: Multi-space availability with intersection check
+// PHASE 3: Add debug log to verify full resource group is sent
 export const fetchMultiAvailability = (spaceIds: number[], date: string) => {
+  console.log("PHASE 3 CHECK - Sending Group:", spaceIds);
   const qs = new URLSearchParams();
   qs.set("date", date);
   spaceIds.forEach((id) => qs.append("space_ids[]", String(id)));

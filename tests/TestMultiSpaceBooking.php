@@ -22,15 +22,21 @@ $table = $wpdb->prefix . 'sb_bookings';
 $repo = new \SpaceBooking\Services\BookingRepository();
 $availability = new \SpaceBooking\Services\AvailabilityService($repo);
 
-$test_date = '2026-08-01';
+$test_date = '2026-05-16';
+
+// Use spaces that are known to work with testing
+$space_1 = 223;
+$space_2 = 10;
+$space_3 = 224;
+$test_spaces = [$space_1, $space_2, $space_3];
 
 // Cleanup function
-function cleanup_test_bookings(string $date): void
+function cleanup_test_bookings(string $date, int $s1, int $s2, int $s3): void
 {
     global $wpdb, $table;
     $wpdb->query($wpdb->prepare(
-        "DELETE FROM $table WHERE booking_date = %s AND space_id IN (101, 102, 103)",
-        $date
+        "DELETE FROM $table WHERE booking_date = %s AND space_id IN (%d, %d, %d)",
+        $date, $s1, $s2, $s3
     ));
 }
 

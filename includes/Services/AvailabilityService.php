@@ -167,7 +167,7 @@ final class AvailabilityService
 			}
 
 			return [
-				'slots' => array_filter($raw_slots, fn($s) => !empty($s['available'])),
+				'slots' => array_values(array_filter($raw_slots, fn($s) => !empty($s['available']))),
 				'blockers' => $blockers,
 				'is_intersection' => true
 			];
@@ -226,15 +226,27 @@ final class AvailabilityService
 		}
 
 		// Find INTERSECTION: slots available in ALL spaces
-		// Normalize slot keys for comparison (use start-end as key)
+		// CRITICAL FIX: Use start-end STRING keys, NOT slot_id!
+		// This fixes the "Object Identity Trap" where unique slot_ids would prevent matching
+		// even when times are identical.
 		$common_slot_keys = null;
 
 		foreach ($space_ids as $space_id) {
 			$slot_keys = [];
 			foreach ($per_space_slots[$space_id] as $slot) {
+				// CRITICAL: Use ONLY start-end as key, stripping slot_id completely!
+				// This ensures 10:00-11:00 matches 10:00-11:00 regardless of slot_id
 				$key = $slot['start'] . '-' . $slot['end'];
-				$slot_keys[$key] = $slot;
+				$slot_keys[$key] = [
+					'start' => $slot['start'],
+					'end' => $slot['end'],
+					'available' => $slot['available'] ?? true,
+					// Normalize slot_id to NOT break intersection
+					'slot_id' => $slot['start'] . '|' . $slot['end'],
+				];
 			}
+
+			error_log("SB_DEBUG: Space $space_id slot keys: " . json_encode(array_keys($slot_keys)));
 
 			if ($common_slot_keys === null) {
 				$common_slot_keys = array_keys($slot_keys);
@@ -242,6 +254,8 @@ final class AvailabilityService
 				$common_slot_keys = array_intersect($common_slot_keys, array_keys($slot_keys));
 			}
 		}
+
+		error_log('SB_DEBUG: Common slot keys after intersection: ' . json_encode($common_slot_keys));
 
 		// Build common slots list
 		$common_slots = [];
@@ -261,25 +275,55 @@ final class AvailabilityService
 			}
 		}
 
-		// Check for partial blockers (spaces with some unavailable slots)
-		$min_available = min($available_counts);
-		if ($min_available > 0 && count($common_slots) === 0) {
-			// All spaces have some slots, but no common overlap
+		// FIXED: Only report additional blockers when there ARE common slots but some spaces have blocking
+		// Don't report blockers when intersection is already empty - the "fully_booked" reason is sufficient
+		if (count($common_slots) > 0) {
+			// Check each space for blocked slots (only if there are common slots, report partial blockers)
 			foreach ($space_ids as $space_id) {
-				if ($available_counts[$space_id] === $min_available && !isset(array_combine($space_ids, $available_counts)[$space_id])) {
-					// Already counted as full blocker
+				// Skip if already has a blocker
+				$already_blocked = false;
+				foreach ($blockers as $b) {
+					if ($b['id'] === $space_id) {
+						$already_blocked = true;
+						break;
+					}
 				}
-			}
-			// The spaces with the fewest slots are causing the issue
-			$min_count = $min_available;
-			foreach ($space_ids as $space_id) {
-				if ($available_counts[$space_id] === $min_count && !in_array($space_id, array_column($blockers, 'id'))) {
+				if ($already_blocked) {
+					continue;
+				}
+
+				// Check if this specific space has blocking for the main time slots
+				$blocking_intervals = $this->repo->get_blocking_intervals([$space_id], $date);
+				if (!empty($blocking_intervals)) {
+					// This space has blocking - report it as a blocker
 					$title = get_the_title($space_id) ?: "Space #$space_id";
 					$blockers[] = [
 						'id' => $space_id,
 						'title' => $title,
-						'reason' => 'limited_availability'
+						'reason' => 'booked',
+						'message' => "Reason: {$title} is already booked for this time."
 					];
+				}
+			}
+		}
+
+		// Check for partial blockers (spaces with some unavailable slots) when no blockers detected
+		// This is a fallback for cases where blocking wasn't explicitly found
+		if (empty($blockers)) {
+			$min_available = min($available_counts);
+			if ($min_available > 0 && count($common_slots) === 0) {
+				// All spaces have some slots, but no common overlap
+				$min_count = $min_available;
+				foreach ($space_ids as $space_id) {
+					if ($available_counts[$space_id] === $min_count) {
+						$title = get_the_title($space_id) ?: "Space #$space_id";
+						$blockers[] = [
+							'id' => $space_id,
+							'title' => $title,
+							'reason' => 'limited_availability',
+							'message' => "Reason: {$title} has limited availability at this time."
+						];
+					}
 				}
 			}
 		}
@@ -302,13 +346,74 @@ final class AvailabilityService
 			$space_ids = [$space_ids];
 		}
 
-		$primary_id = $space_ids[array_key_first($space_ids)] ?? $space_ids[0] ?? 0;
+		// FIXED: For multi-space, get slots for EACH space and find intersection
+		// Each space might have different fixed slot definitions!
 
-		if ($primary_id === 0) {
-			return [];
+		if (count($space_ids) === 1) {
+			// Single space - use original logic
+			$sid = reset($space_ids);
+			return $this->get_fixed_slots_single($sid, $date);
 		}
 
-		$date_overrides = get_post_meta($primary_id, '_sb_date_overrides', true);
+		// Multi-space: Get slots for EACH space, then find intersection
+		$per_space_slots = [];
+		foreach ($space_ids as $sid) {
+			$slots = $this->get_fixed_slots_single($sid, $date);
+			if (empty($slots)) {
+				// This space has no fixed slots defined - fall back to dynamic
+				return [];
+			}
+			$per_space_slots[$sid] = $slots;
+		}
+
+		// Find INTERSECTION: slots available in ALL spaces
+		// Use first space's slots as template
+		$first_id = reset($space_ids);
+		$common_slots = [];
+
+		foreach ($per_space_slots[$first_id] as $base_slot) {
+			$slot_key = $base_slot['start'] . '-' . $base_slot['end'];
+			$is_available_in_all = true;
+
+			// Check this slot is available in ALL other spaces
+			foreach ($space_ids as $sid) {
+				if ($sid === $first_id)
+					continue;
+
+				$found = false;
+				foreach ($per_space_slots[$sid] as $other_slot) {
+					if ($other_slot['start'] === $base_slot['start'] && $other_slot['end'] === $base_slot['end']) {
+						if (!empty($other_slot['available'])) {
+							$found = true;
+						}
+						break;
+					}
+				}
+				if (!$found) {
+					$is_available_in_all = false;
+					break;
+				}
+			}
+
+			if ($is_available_in_all) {
+				$common_slots[] = $base_slot;
+			}
+		}
+
+		error_log('SB_DEBUG: get_fixed_slots intersection: ' . count($common_slots) . ' common slots from ' . count($space_ids) . ' spaces');
+		return array_values($common_slots);
+	}
+
+	/**
+	 * Get fixed slots for a SINGLE space (internal helper)
+	 */
+	private function get_fixed_slots_single(int $space_id, string $date): array
+	{
+		// Get blocking for THIS space only
+		$blocked = $this->repo->get_blocking_intervals([$space_id], $date);
+		error_log('SB_DEBUG: get_fixed_slots_single blocking for space ' . $space_id . ': ' . count($blocked));
+
+		$date_overrides = get_post_meta($space_id, '_sb_date_overrides', true);
 		if (is_array($date_overrides) && isset($date_overrides[$date])) {
 			$override = $date_overrides[$date];
 			if ($override['status'] === 'closed') {
@@ -320,21 +425,14 @@ final class AvailabilityService
 				return [];
 			}
 		} else {
-			$fixed_slots = get_post_meta($primary_id, '_sb_fixed_slots', true);
+			$fixed_slots = get_post_meta($space_id, '_sb_fixed_slots', true);
 			if (!is_array($fixed_slots) || empty($fixed_slots)) {
 				return [];  // No fixed slots defined
 			}
 		}
 
-		// UNIFIED: Use single method to get ALL blocking intervals
-		$all_blocked = $this->repo->get_blocking_intervals($space_ids, $date);
-		error_log('SB_DEBUG: get_fixed_slots blocking_intervals count: ' . count($all_blocked) . ' for date: ' . $date);
-		if (!empty($all_blocked)) {
-			error_log('SB_DEBUG: First blocking: ' . json_encode($all_blocked[0]));
-		}
-
-		$space_pre_buf = (int) get_post_meta($primary_id, '_sb_buffer_pre_minutes', true) ?: (int) get_option('sb_buffer_pre_minutes', 0);
-		$space_post_buf = (int) get_post_meta($primary_id, '_sb_buffer_post_minutes', true) ?: (int) get_option('sb_buffer_post_minutes', 0);
+		$space_pre_buf = (int) get_post_meta($space_id, '_sb_buffer_pre_minutes', true) ?: (int) get_option('sb_buffer_pre_minutes', 0);
+		$space_post_buf = (int) get_post_meta($space_id, '_sb_buffer_post_minutes', true) ?: (int) get_option('sb_buffer_post_minutes', 0);
 
 		$slots = [];
 		foreach ($fixed_slots as $slot_data) {
@@ -344,18 +442,8 @@ final class AvailabilityService
 			$slot_start = $this->add_minutes($slot_data['start_time'], -$pre_buf);
 			$slot_end = $this->add_minutes($slot_data['end_time'], $post_buf);
 
-			$is_available = !self::overlaps($slot_start, $slot_end, $all_blocked);
-
-			// Since we now get ALL blocking intervals in one query, we can't easily distinguish
-			// pending vs confirmed. For simplicity, just mark as unavailable if blocked.
+			$is_available = !self::overlaps($slot_start, $slot_end, $blocked);
 			$has_pending = false;
-
-			// Detailed slot status logging
-			$slot_status = $is_available ? 'AVAILABLE' : 'BLOCKED';
-			error_log(sprintf('SB_DEBUG: Slot %s-%s → available=%d status=%s',
-				$slot_data['start_time'], $slot_data['end_time'],
-				$is_available ? 1 : 0,
-				$slot_status));
 
 			$slots[] = [
 				'slot_id' => $slot_data['slot_id'],
@@ -406,31 +494,48 @@ final class AvailabilityService
 
 	public function get_slots(int|array $space_ids, string $date, int $step_mins = 60): array
 	{
-		if (!is_array($space_ids))
+		// NEW: Ensure we always work with array of space IDs - iterate ALL of them
+		if (!is_array($space_ids)) {
 			$space_ids = [$space_ids];
-
-		$primary_id = $space_ids[array_key_first($space_ids)] ?? $space_ids[0] ?? 0;
-
-		error_log('AVAIL DEBUG: get_slots called for space_ids=' . print_r($space_ids, true) . ", primary_id=$primary_id, date=$date");
-
-		// 1. FIRST: Attempt fixed slots (now using conflict_ids inside get_fixed_slots)
-		$fixed = $this->get_fixed_slots($space_ids, $date);
-		error_log('AVAIL DEBUG: Fixed slots count: ' . count($fixed));
-
-		if (count($fixed) > 0) {
-			error_log('AVAIL DEBUG: Using FIXED slots');
-			return [
-				'slots' => $fixed,
-				'has_fixed_slots' => true
-			];
 		}
 
-		// 2. FALLBACK: No fixed slots found → dynamic generation
-		error_log("AVAIL DEBUG: No fixed slots found for ID $primary_id, falling back to dynamic generation.");
-		$dynamic = $this->generate_dynamic_slots($space_ids, $date, $step_mins);
+		$space_ids = array_values($space_ids);  // Re-index to ensure sequential keys
+
+		error_log('AVAIL DEBUG: get_slots called for space_ids=' . json_encode($space_ids) . ", date=$date");
+
+		// NEW: Iterate ALL space IDs and get slots for each one
+		$all_results = [];
+
+		foreach ($space_ids as $space_id) {
+			// 1. FIRST: Attempt fixed slots
+			$fixed = $this->get_fixed_slots([$space_id], $date);
+
+			if (count($fixed) > 0) {
+				// Has fixed slots - use them
+				$all_results[$space_id] = [
+					'slots' => $fixed,
+					'has_fixed_slots' => true
+				];
+			} else {
+				// 2. FALLBACK: dynamic generation
+				$dynamic = $this->generate_dynamic_slots([$space_id], $date, $step_mins);
+				$all_results[$space_id] = [
+					'slots' => $dynamic,
+					'has_fixed_slots' => false
+				];
+			}
+		}
+
+		// NEW: If single space, return its result directly (backward compatible)
+		if (count($space_ids) === 1) {
+			return $all_results[$space_ids[0]];
+		}
+
+		// NEW: For multiple spaces, return all results
 		return [
-			'slots' => $dynamic,
-			'has_fixed_slots' => false
+			'slots' => $all_results,
+			'has_fixed_slots' => false,
+			'multi_space' => true
 		];
 	}
 
@@ -461,35 +566,84 @@ final class AvailabilityService
 		if (!is_array($space_ids))
 			$space_ids = [$space_ids];
 
-		// FIXED: Use requested space_ids directly instead of get_conflict_groups()
-		// The shadow booking system ensures that ANY booking (lead OR shadow) for a space_id
-		// is marked in the database. We don't need resource dependencies to find conflicts.
-		// This prevents the availability logic leak where single-space searches bypass shadows.
+		// FIXED: For multi-space, get slots for EACH space and find intersection
+		// Each space might have different hours!
 
-		// Primary space for meta
-		$primary_id = $space_ids[array_key_first($space_ids)] ?? $space_ids[0] ?? 0;
+		if (count($space_ids) === 1) {
+			// Single space - use original logic
+			$sid = reset($space_ids);
+			return $this->generate_dynamic_slots_single($sid, $date, $step_mins);
+		}
 
-		error_log('AVAIL DEBUG: generate_dynamic_slots for primary_id=' . $primary_id);
+		// Multi-space: Get slots for EACH space, then find intersection
+		$per_space_slots = [];
+		foreach ($space_ids as $sid) {
+			$slots = $this->generate_dynamic_slots_single($sid, $date, $step_mins);
+			if (empty($slots)) {
+				// This space has no hours - can't book
+				return [];
+			}
+			$per_space_slots[$sid] = $slots;
+		}
 
-		[$open, $close] = $this->resolve_effective_hours($primary_id, $date);
+		// Find INTERSECTION: slots available in ALL spaces
+		// Use first space's slots as template
+		$first_id = reset($space_ids);
+		$common_slots = [];
+
+		foreach ($per_space_slots[$first_id] as $base_slot) {
+			$is_available_in_all = true;
+
+			// Check this slot is available in ALL other spaces
+			foreach ($space_ids as $sid) {
+				if ($sid === $first_id)
+					continue;
+
+				$found = false;
+				foreach ($per_space_slots[$sid] as $other_slot) {
+					if ($other_slot['start'] === $base_slot['start'] && $other_slot['end'] === $base_slot['end']) {
+						if (!empty($other_slot['available'])) {
+							$found = true;
+						}
+						break;
+					}
+				}
+				if (!$found) {
+					$is_available_in_all = false;
+					break;
+				}
+			}
+
+			if ($is_available_in_all) {
+				$common_slots[] = $base_slot;
+			}
+		}
+
+		error_log('SB_DEBUG: generate_dynamic_slots intersection: ' . count($common_slots) . ' common slots from ' . count($space_ids) . ' spaces');
+		return array_values($common_slots);
+	}
+
+	/**
+	 * Generate dynamic slots for a SINGLE space (internal helper)
+	 */
+	private function generate_dynamic_slots_single(int $space_id, string $date, int $step_mins = 60): array
+	{
+		// Get blocking for THIS space only
+		$blocked = $this->repo->get_blocking_intervals([$space_id], $date);
+		error_log('SB_DEBUG: generate_dynamic_slots_single blocking for space ' . $space_id . ': ' . count($blocked));
+
+		[$open, $close] = $this->resolve_effective_hours($space_id, $date);
 		error_log("AVAIL DEBUG: dynamic effective open=$open, close=$close");
 
 		if (!$open || !$close) {
 			error_log('AVAIL DEBUG: Space closed for dynamic, empty slots');
-			return [];  // Primary space closed
+			return [];
 		}
 
 		$slots = $this->generate_slots($open, $close, $step_mins);
 		error_log('AVAIL DEBUG: Generated raw dynamic slots count: ' . count($slots));
 
-		// UNIFIED: Use single method to get ALL blocking intervals
-		$all_blocked = $this->repo->get_blocking_intervals($space_ids, $date);
-		error_log('SB_DEBUG: generate_dynamic_slots blocking_intervals count: ' . count($all_blocked) . ' for date: ' . $date . ', space_ids: ' . json_encode($space_ids));
-		if (!empty($all_blocked)) {
-			error_log('SB_DEBUG: First blocking: ' . json_encode($all_blocked[0]));
-		}
-
-		[$pre_buf, $post_buf] = $this->resolve_buffers($primary_id);
+		[$pre_buf, $post_buf] = $this->resolve_buffers($space_id);
 		error_log("AVAIL DEBUG: Dynamic buffers pre=$pre_buf post=$post_buf");
 
 		// Inflate blocking intervals with buffers
@@ -498,22 +652,16 @@ final class AvailabilityService
 				'start' => $this->add_minutes($b['start'], -$pre_buf),
 				'end' => $this->add_minutes($b['end'], $post_buf),
 			];
-		}, $all_blocked);
+		}, $blocked);
 
 		$available_count = 0;
 		$final_slots = array_map(static function (array $slot) use ($inflated_intervals, &$available_count): array {
 			$is_available = !self::overlaps($slot['start'], $slot['end'], $inflated_intervals);
 
-			$slot_status = $is_available ? 'AVAILABLE' : 'BLOCKED';
-			error_log(sprintf('SB_DEBUG: Slot %s-%s → available=%d status=%s',
-				$slot['start'], $slot['end'],
-				$is_available ? 1 : 0,
-				$slot_status));
-
 			if ($is_available)
 				$available_count++;
 			$slot['available'] = $is_available;
-			$slot['has_pending'] = false;  // Unified: simplify since we can't distinguish
+			$slot['has_pending'] = false;
 			return $slot;
 		}, $slots);
 

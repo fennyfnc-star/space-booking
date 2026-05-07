@@ -5,8 +5,7 @@ import { createBooking, checkCartHasBooking, fetchPricing } from "@/utils/api";
 export function Step6Payment() {
   const {
     checkoutUrl,
-    getPrimarySpaceId,
-
+    lockedResourceIds,
     priceBreakdown,
     totalPrice,
     selectedDate,
@@ -25,10 +24,21 @@ export function Step6Payment() {
   const [checkingCart, setCheckingCart] = useState(true);
   const [error, setError] = useState("");
 
+  // Get first space ID from lockedResourceIds array
+  const getFirstSpaceId = (): number => {
+    if (lockedResourceIds && lockedResourceIds.length > 0) {
+      return lockedResourceIds[0];
+    }
+    if (selectedItems.length > 0) {
+      return Number(selectedItems[0].id);
+    }
+    return 0;
+  };
+
   // Refetch fresh pricing on Step6 mount (ensure up-to-date breakdown)
   useEffect(() => {
     const refreshPricing = async () => {
-      const spaceId = getPrimarySpaceId();
+      const spaceId = getFirstSpaceId();
       if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime)
         return;
 

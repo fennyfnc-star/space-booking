@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
-import { fetchAvailability, fetchMultiAvailability } from "@/utils/api";
+import { fetchMultiAvailability } from "@/utils/api";
 import type { AvailabilityResponse, TimeSlot } from "@/types";
 
 import { fetchPricing } from "@/utils/api";
@@ -8,17 +8,20 @@ import { fetchPricing } from "@/utils/api";
 export function Step2Scheduling() {
   const {
     selectedItems,
-    lockedResourceIds, // NEW: includes all locked IDs for multi-space
     selectedDate,
     selectedStartTime,
     selectedEndTime,
-    getPrimarySpaceId,
     setDate,
     setStartTime,
     setEndTime,
     nextStep,
     prevStep,
+    getLockedResourceIds, // Use getter to compute fresh each time
   } = useBookingStore();
+
+  // CRITICAL: Use getter to compute fresh locked IDs from selectedItems
+  // This ensures we send the FULL selection group, not just one space
+  const lockedResourceIds = getLockedResourceIds();
 
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [apiResponse, setApiResponse] = useState<AvailabilityResponse | null>(
@@ -30,7 +33,7 @@ export function Step2Scheduling() {
   const [priceLoading, setPriceLoading] = useState(false);
   const [blockers, setBlockers] = useState<
     { id: number; title: string; reason?: string }[]
-  >([]); // NEW: blocker info
+  >([]);
 
   const timeToMinutes = (timeStr: string): number => {
     const [h, m] = timeStr.split(":").map(Number);
@@ -63,6 +66,18 @@ export function Step2Scheduling() {
     return true;
   };
 
+  // Get first space ID from lockedResourceIds for pricing
+  const getFirstSpaceId = (): number => {
+    if (lockedResourceIds && lockedResourceIds.length > 0) {
+      return lockedResourceIds[0];
+    }
+    // Fallback to first selected item
+    if (selectedItems.length > 0) {
+      return Number(selectedItems[0].id);
+    }
+    return 0;
+  };
+
   // Fixed slot selection handler
   const selectFixedSlot = async (slot: TimeSlot) => {
     if (!slot.available) return;
@@ -76,11 +91,12 @@ export function Step2Scheduling() {
       // Fallback to API pricing if no override
       setPriceLoading(true);
       try {
+        const firstSpaceId = getFirstSpaceId();
         const pricing = await fetchPricing({
-          space_id: getPrimarySpaceId() ?? 0,
+          space_id: firstSpaceId,
           date: selectedDate!,
           start_time: slot.start,
-          item_ids: [],
+          item_ids: lockedResourceIds || [],
           end_time: slot.end,
           extras: [],
           package_id: selectedItems.find((i) => i.type === "package")?.id,
@@ -103,57 +119,55 @@ export function Step2Scheduling() {
     }
   }, [selectedStartTime, slots, minDuration, hasFixedSlots]);
 
-  // NEW: Determine if multi-space mode
-  const isMultiSpace = lockedResourceIds && lockedResourceIds.length > 1;
-  const activeSpaceIds =
-    lockedResourceIds && lockedResourceIds.length > 0
-      ? lockedResourceIds
-      : getPrimarySpaceId()
-        ? [getPrimarySpaceId()!]
-        : [];
-
   // Minimum selectable date = today
   const today = new Date().toISOString().split("T")[0];
 
+  // Always use fetchMultiAvailability with the lockedResourceIds array
   useEffect(() => {
-    const spaceId = getPrimarySpaceId();
-    if (!selectedDate || spaceId === null) return;
+    // Use lockedResourceIds as the array - always use multi-space endpoint
+    const spaceIds =
+      lockedResourceIds && lockedResourceIds.length > 0
+        ? lockedResourceIds
+        : [];
+
+    if (!selectedDate || spaceIds.length === 0) {
+      // No spaces selected yet
+      setSlots([]);
+      setApiResponse(null);
+      return;
+    }
+
     console.group("AVAILABILITY LOAD");
+    // CRITICAL: Log ACTUAL IDs being sent - this will prove whether full union or single ID
+    console.log("fetchAvailability spaceIds:", spaceIds, "date:", selectedDate);
     console.log(
-      "fetchAvailability spaceIds:",
-      activeSpaceIds,
-      "date:",
-      selectedDate,
-      "isMultiSpace:",
-      isMultiSpace,
+      "DEBUG: selectedItems IDs:",
+      selectedItems.map((i) => i.id),
     );
+    console.log("DEBUG: lockedResourceIds (fresh):", lockedResourceIds);
     setLoading(true);
     setError("");
     setApiResponse(null);
     setBlockers([]);
 
-    // NEW: Use multi-space endpoint when multiple spaces selected
-    const availabilityPromise = isMultiSpace
-      ? fetchMultiAvailability(activeSpaceIds, selectedDate)
-      : fetchAvailability(spaceId, selectedDate);
-
-    availabilityPromise
+    // Always use multi-space endpoint - works for single or multiple spaces
+    fetchMultiAvailability(spaceIds, selectedDate)
       .then((res) => {
         console.log("AVAILABILITY RES:", res);
         console.log("slots:", res.slots);
 
-        // NEW: Extract blockers for multi-space
+        // Extract blockers
         if (res.blockers && res.blockers.length > 0) {
           setBlockers(res.blockers);
         }
 
         // Sort slots chronologically by start time before storing
         const sortedSlots = [...res.slots].sort((a, b) => {
-          const timeToMinutes = (t: string) => {
+          const timeToMins = (t: string) => {
             const [h, m] = t.split(":").map(Number);
             return h * 60 + m;
           };
-          return timeToMinutes(a.start) - timeToMinutes(b.start);
+          return timeToMins(a.start) - timeToMins(b.start);
         });
         setSlots(sortedSlots);
         setApiResponse(res);
@@ -164,7 +178,8 @@ export function Step2Scheduling() {
         setError(e.message);
       })
       .finally(() => setLoading(false));
-  }, [selectedDate, getPrimarySpaceId(), isMultiSpace]); // NEW: Include isMultiSpace
+    // Track selectedItems so we re-fetch when selection changes
+  }, [selectedDate, selectedItems]);
 
   // Sequential available end slots starting from minDuration (excluding default)
   const endTimeOptions: TimeSlot[] = [];
@@ -281,7 +296,6 @@ export function Step2Scheduling() {
                           fontSize: "12px",
                           padding: "4px 8px",
                           borderRadius: "4px",
-                          // Check has_pending FIRST - pending bookings should show yellow badge
                           background: slot.has_pending
                             ? "#fff3cd"
                             : slot.available

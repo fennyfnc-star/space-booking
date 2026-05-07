@@ -19,6 +19,7 @@ interface EnrichedBreakdownItem {
 export function Step3Addons() {
   const {
     selectedItems,
+    lockedResourceIds,
     selectedDate,
     selectedStartTime,
     selectedEndTime,
@@ -29,10 +30,16 @@ export function Step3Addons() {
     setPriceBreakdown,
     nextStep,
     prevStep,
-    getPrimarySpaceId,
   } = useBookingStore();
 
-  const spaceId = getPrimarySpaceId() ?? 0;
+  // Get first space ID from lockedResourceIds array
+  const spaceId =
+    lockedResourceIds && lockedResourceIds.length > 0
+      ? lockedResourceIds[0]
+      : selectedItems.length > 0
+        ? Number(selectedItems[0].id)
+        : 0;
+
   const pkgItem = selectedItems.find(
     (item: SelectionItem) => item.type === "package",
   ) as Package | undefined;

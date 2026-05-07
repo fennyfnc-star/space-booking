@@ -283,6 +283,8 @@ class BookingRepository
 	/**
 	 * Get pending (non-expired) time intervals for spaces.
 	 * Used to block slots that are currently being booked by another customer.
+	 *
+	 * FIXED: Same logic as get_blocking_intervals - only non-expired pending bookings block.
 	 */
 	public function get_pending_intervals_for_spaces(array $space_ids, string $date): array
 	{
@@ -295,18 +297,14 @@ class BookingRepository
 		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
 		$space_ids_params = $space_ids;
 
-		// Get pending bookings: valid & non-expired OR legacy invalid expired_at (= '0000-00-00')
-		// This ensures slots are properly blocked when there's an active pending booking
+		// Get pending bookings: ONLY valid & non-expired (no '0000-00-00' zombie condition!)
 		return $wpdb->get_results($wpdb->prepare("
 			SELECT start_time as start, end_time as end
-            FROM {$wpdb->prefix}sb_bookings 
-            WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s 
-            AND status = 'pending'
-            AND (
-                expired_at > NOW() 
-                OR expired_at = '0000-00-00 00:00:00'
-            )
-            ORDER BY start_time",
+			FROM {$wpdb->prefix}sb_bookings 
+			WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s 
+			AND status = 'pending'
+			AND expired_at > NOW()
+			ORDER BY start_time",
 			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
 	}
 
@@ -323,6 +321,14 @@ class BookingRepository
 	 * - Row 3: space_id=C (shadow)
 	 *
 	 * Querying WHERE space_id=A finds Row 1 (no subquery needed!)
+	 *
+	 * STATUS BLOCKING LOGIC:
+	 * - 'confirmed' - blocks (paid/confirmed bookings)
+	 * - 'in_review' - blocks (awaiting admin review)
+	 * - 'pending' (non-expired) - blocks (active cart holds)
+	 *
+	 * FIXED: Removed '0000-00-00' zombie condition - pending bookings
+	 * without expiry should NOT block forever!
 	 */
 	public function get_blocking_intervals(array $space_ids, string $date): array
 	{
@@ -335,10 +341,21 @@ class BookingRepository
 		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
 		$space_ids_params = $space_ids;
 
-		// Simple query - just check space_id directly!
-		// No need to check parent_booking_id relationships.
-		// If space A's ID is in space_id column, it's BLOCKED.
-		// UNIFIED: Remove shadow status - only confirmed/in_review and pending (non-expired) block
+		// SQL DUMP (for verification):
+		// SELECT start_time as start, end_time as end
+		// FROM wp_prefix sb_bookings
+		// WHERE space_id IN (:space_ids)
+		//   AND booking_date = :date
+		//   AND (
+		//       status IN ('confirmed', 'in_review')
+		//       OR (status = 'pending' AND expired_at > NOW())
+		//   )
+		// ORDER BY start_time
+		//
+		// This ensures ONLY non-expired pending bookings block:
+		// - expired_at must be in the future (> NOW())
+		// - No more zombie locks from '0000-00-00' timestamps
+
 		$query = $wpdb->prepare("
 			SELECT start_time as start, end_time as end
 			FROM {$wpdb->prefix}sb_bookings
@@ -346,12 +363,13 @@ class BookingRepository
 			AND booking_date = %s 
 			AND (
 				status IN ('confirmed', 'in_review')
-				OR (status = 'pending' AND (expired_at > NOW() OR expired_at = '0000-00-00 00:00:00'))
+				OR (status = 'pending' AND expired_at > NOW())
 			)
 			ORDER BY start_time",
 			...array_merge($space_ids_params, [$date]));
 
-		error_log('SB_DEBUG: get_blocking_intervals query built for spaces: ' . json_encode($space_ids) . ', date: ' . $date);
+		error_log('SB_DEBUG: get_blocking_intervals SQL: ' . str_replace("\n", ' ', $query));
+		error_log('SB_DEBUG: get_blocking_intervals params: ' . json_encode($space_ids) . ', date: ' . $date);
 
 		return $wpdb->get_results($query, ARRAY_A) ?: [];
 	}
