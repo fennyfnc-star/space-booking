@@ -16,7 +16,7 @@ final class WooCommerceOrderActions
         }
 
         // Add "Send Booking Confirmation" action to WooCommerce order actions dropdown
-        add_filter('woocommerce_order_actions', [self::class, 'add_booking_confirmation_action'], 10, 2);
+        // add_filter('woocommerce_order_actions', [self::class, 'add_booking_confirmation_action'], 10, 2);
 
         // Handle the booking confirmation action when triggered
         add_action('woocommerce_order_action_sb_send_booking_confirmation', [self::class, 'handle_booking_confirmation']);
