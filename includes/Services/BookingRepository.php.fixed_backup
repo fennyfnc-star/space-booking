@@ -372,12 +372,17 @@ class BookingRepository
 		$query = $wpdb->prepare("
 			SELECT start_time as start, end_time as end
 			FROM {$wpdb->prefix}sb_bookings
-			WHERE id IN ({$booking_ids_placeholder})
+			WHERE space_id IN ({$space_ids_placeholder}) 
+			AND booking_date = %s 
+			AND (
+				status IN ('confirmed', 'in_review', 'paid')
+				OR (status = 'pending' AND expired_at > NOW())
+			)
 			ORDER BY start_time",
-			...array_merge($booking_ids));
+			...array_merge($space_ids_params, [$date]));
 
 		error_log('SB_DEBUG: get_blocking_intervals SQL: ' . str_replace("\n", ' ', $query));
-		error_log('SB_DEBUG: get_blocking_intervals params: ' . json_encode($booking_ids) . ', date: ' . $date);
+		error_log('SB_DEBUG: get_blocking_intervals params: ' . json_encode($space_ids) . ', date: ' . $date);
 
 		$results = $wpdb->get_results($query, ARRAY_A) ?: [];
 		// FIX: Normalize time strings for consistent matching
