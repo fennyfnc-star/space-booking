@@ -50,9 +50,28 @@ export function Step2Scheduling() {
     return `${hour}:${minutes} ${period}`;
   };
 
-  const firstItem = selectedItems[0];
-  const minDuration = (firstItem as any)?.min_duration ?? 1;
-  const maxDuration = (firstItem as any)?.max_duration ?? 8;
+  // NEW: Compute min/max duration across ALL selected items
+  // minDuration = maximum of all min_durations (most restrictive)
+  // maxDuration = minimum of all max_durations (most restrictive)
+  const computedDurations = (() => {
+    if (selectedItems.length === 0) {
+      return { minDuration: 1, maxDuration: 8 };
+    }
+    let minDur = Infinity;
+    let maxDur = -Infinity;
+    for (const item of selectedItems) {
+      const itemMin = (item as any)?.min_duration ?? 1;
+      const itemMax = (item as any)?.max_duration ?? 8;
+      if (itemMin < minDur) minDur = itemMin;
+      if (itemMax > maxDur) maxDur = itemMax;
+    }
+    return {
+      minDuration: minDur === Infinity ? 1 : minDur,
+      maxDuration: maxDur === -Infinity ? 8 : maxDur,
+    };
+  })();
+  const minDuration = computedDurations.minDuration;
+  const maxDuration = computedDurations.maxDuration;
 
   const hasFixedSlots =
     apiResponse?.has_fixed_slots ?? slots.some((s) => s.slot_id);
@@ -66,20 +85,7 @@ export function Step2Scheduling() {
     return true;
   };
 
-  // Get first space ID - ALWAYS call getter fresh to avoid stale state
-  const getFirstSpaceId = (): number => {
-    const fresh = getLockedResourceIds();
-    if (fresh && fresh.length > 0) {
-      return fresh[0];
-    }
-    // Fallback to first selected item
-    if (selectedItems.length > 0) {
-      return Number(selectedItems[0].id);
-    }
-    return 0;
-  };
-
-  // Fixed slot selection handler - ALWAYS fetch fresh IDs
+  // Fixed slot selection handler - uses first item from selectedItems for pricing
   const selectFixedSlot = async (slot: TimeSlot) => {
     if (!slot.available) return;
 
@@ -92,10 +98,12 @@ export function Step2Scheduling() {
       // ARRAY-ONLY: Always use fresh resource IDs
       setPriceLoading(true);
       try {
-        const firstSpaceId = getFirstSpaceId();
+        // Use first item ID for pricing API (backward compatible signature)
+        const firstItemId =
+          selectedItems.length > 0 ? Number(selectedItems[0].id) : 0;
         const freshIds = getLockedResourceIds();
         const pricing = await fetchPricing({
-          space_id: firstSpaceId,
+          space_id: firstItemId,
           date: selectedDate!,
           start_time: slot.start,
           item_ids: freshIds || [],

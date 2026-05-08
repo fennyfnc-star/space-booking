@@ -5,16 +5,14 @@ namespace SpaceBooking\Controllers;
 use SpaceBooking\Services\AvailabilityService;
 use SpaceBooking\Services\BookingRepository;
 use SpaceBooking\Services\InventoryService;
-use SpaceBooking\Services\PricingService;
 use WP_REST_Controller;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
 
 /**
- * GET /space-booking/v1/availability   → slots for a space+date
+ * GET /space-booking/v1/availability/multi → slots for multiple spaces+date
  * GET /space-booking/v1/extras         → available extras for space+date+time
- * GET /space-booking/v1/pricing        → price preview
  */
 final class AvailabilityController extends WP_REST_Controller
 {
@@ -22,39 +20,17 @@ final class AvailabilityController extends WP_REST_Controller
 
 	private AvailabilityService $availability;
 	private InventoryService $inventory;
-	private PricingService $pricing;
 
 	public function __construct()
 	{
 		$repo = new BookingRepository();
 		$this->availability = new AvailabilityService($repo);
 		$this->inventory = new InventoryService();
-		$this->pricing = new PricingService();
 	}
 
 	public function register_routes(): void
 	{
-		// Slot availability (legacy single space_id)
-		register_rest_route($this->namespace, '/availability', [
-			[
-				'methods' => WP_REST_Server::READABLE,
-				'callback' => [$this, 'get_availability'],
-				'permission_callback' => '__return_true',
-				'args' => [
-					'space_id' => [
-						'required' => true,
-						'sanitize_callback' => 'absint',
-					],
-					'date' => [
-						'required' => true,
-						'sanitize_callback' => 'sanitize_text_field',
-						'validate_callback' => [$this, 'validate_date'],
-					],
-				],
-			],
-		]);
-
-		// NEW: Multi-space availability with intersection check
+		// Multi-space availability with intersection check
 		register_rest_route($this->namespace, '/availability/multi', [
 			[
 				'methods' => WP_REST_Server::READABLE,
@@ -169,47 +145,6 @@ final class AvailabilityController extends WP_REST_Controller
 		]);
 	}
 
-	public function get_availability(WP_REST_Request $request): WP_REST_Response
-	{
-		$space_id = $request->get_param('space_id');
-		$date = $request->get_param('date');
-		$step_mins = (int) get_option('sb_slot_interval_minutes', 60);
-
-		// Validate space exists
-		$post = get_post($space_id);
-		if (!$post || $post->post_type !== 'sb_space') {
-			return new WP_REST_Response(['message' => 'Space not found.'], 404);
-		}
-
-		$result = $this->availability->get_slots($space_id, $date, $step_mins);
-		$slots = $result['slots'];
-		$has_fixed_slots = $result['has_fixed_slots'];
-
-		[$open, $close] = $this->availability->resolve_effective_hours($space_id, $date);
-
-		// For fixed slots display, compute effective open/close from slots
-		if ($has_fixed_slots && !empty($slots)) {
-			$open = min(array_map(fn($s) => $s['start'], $slots));
-			$close = max(array_map(fn($s) => $s['end'], $slots));
-		}
-
-		$message = null;
-		if ($has_fixed_slots && empty($slots)) {
-			$message = 'This space operates on a fixed schedule and is fully booked or closed for this date.';
-		}
-
-		return rest_ensure_response([
-			'date' => $date,
-			'space_id' => $space_id,
-			'open_time' => $open,
-			'close_time' => $close,
-			'slots' => $slots,
-			'has_fixed_slots' => $has_fixed_slots,
-			'is_fixed_slots' => !empty($slots) && isset($slots[0]['slot_id']),
-			'message' => $message,
-		]);
-	}
-
 	public function get_extras(WP_REST_Request $request): WP_REST_Response
 	{
 		$space_id = $request->get_param('space_id');
@@ -229,24 +164,6 @@ final class AvailabilityController extends WP_REST_Controller
 		}
 
 		return rest_ensure_response($extras);
-	}
-
-	public function get_pricing(WP_REST_Request $request): WP_REST_Response
-	{
-		$space_id = (int) $request->get_param('space_id');
-		$date = (string) $request->get_param('date');
-		$start_time = (string) $request->get_param('start_time');
-		$end_time = (string) $request->get_param('end_time');
-		$package_id = $request->get_param('package_id') ? (int) $request->get_param('package_id') : null;
-
-		$extras_raw = $request->get_param('extras');
-		$extras = is_array($extras_raw) ? $extras_raw : [];
-
-		$result = $this->pricing->calculate(
-			$space_id, $date, $start_time, $end_time, $extras, [$space_id], $package_id
-		);
-
-		return rest_ensure_response($result);
 	}
 
 	// ── Validators ───────────────────────────────────────────────────────────
