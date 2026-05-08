@@ -29,37 +29,34 @@ final class Installer
 		global $wpdb;
 		$charset = $wpdb->get_charset_collate();
 
-		// Bookings
+		// Bookings - NEW SCHEMA: Main booking table (no space_id per row)
+		// Spaces are linked via sb_booking_spaces table
 		$sql_bookings = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}sb_bookings (
-			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			space_id        BIGINT UNSIGNED NOT NULL,
-			package_id      BIGINT UNSIGNED DEFAULT NULL,
-			order_id       BIGINT UNSIGNED DEFAULT NULL,
-			customer_name   VARCHAR(191)    NOT NULL,
-			customer_email  VARCHAR(191)    NOT NULL,
-			customer_phone  VARCHAR(50)     DEFAULT NULL,
-			booking_date    DATE            NOT NULL,
-			start_time      TIME            NOT NULL,
-			end_time        TIME            NOT NULL,
+			id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			customer_name       VARCHAR(191)    NOT NULL,
+			customer_email     VARCHAR(191)    NOT NULL,
+			customer_phone    VARCHAR(50)     DEFAULT NULL,
+			booking_date       DATE            NOT NULL,
+			start_time         TIME            NOT NULL,
+			end_time          TIME            NOT NULL,
 			duration_hours  DECIMAL(4,2)    NOT NULL,
-			base_price      DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			extras_price    DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			modifier_price  DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			total_price     DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			status          ENUM('pending','confirmed','cancelled','refunded') NOT NULL DEFAULT 'pending',
-			stripe_pi_id    VARCHAR(191)    DEFAULT NULL,
-notes           TEXT            DEFAULT NULL,
-			extras          LONGTEXT        DEFAULT NULL,
-			lookup_token    VARCHAR(64)     DEFAULT NULL,
-			token_expires   DATETIME        DEFAULT NULL,
-			created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			PRIMARY KEY     (id),
-			KEY idx_space_date     (space_id, booking_date),
-			KEY idx_email          (customer_email),
-			KEY idx_status         (status),
-			KEY idx_stripe_pi      (stripe_pi_id),
-			KEY idx_lookup_token   (lookup_token)
+			base_price     DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+			extras_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+			modifier_price DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+			total_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+			status        ENUM('pending','in_review','confirmed','cancelled','refunded') NOT NULL DEFAULT 'pending',
+			stripe_pi_id   VARCHAR(191)    DEFAULT NULL,
+			notes          TEXT            DEFAULT NULL,
+			lookup_token  VARCHAR(64)     DEFAULT NULL,
+			token_expires DATETIME        DEFAULT NULL,
+			marketing_source VARCHAR(191)  DEFAULT NULL,
+			created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY idx_email        (customer_email),
+			KEY idx_status       (status),
+			KEY idx_lookup_token (lookup_token),
+			KEY idx_date_status (booking_date, status)
 		) $charset;";
 
 		// Booking Extras (pivot)
@@ -72,6 +69,34 @@ notes           TEXT            DEFAULT NULL,
 			PRIMARY KEY (id),
 			KEY idx_booking (booking_id),
 			KEY idx_extra   (extra_id)
+		) $charset;";
+
+		// Booking Spaces (new table - links spaces to bookings)
+		$sql_booking_spaces = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}sb_booking_spaces (
+			id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			booking_id    BIGINT UNSIGNED NOT NULL,
+			space_id      BIGINT UNSIGNED NOT NULL,
+			package_id   BIGINT UNSIGNED DEFAULT NULL,
+			start_time   TIME            NOT NULL,
+			end_time    TIME            NOT NULL,
+			created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_booking    (booking_id),
+			KEY idx_space     (space_id),
+			KEY idx_space_slot (space_id, start_time, end_time)
+		) $charset;";
+
+		// Booking Packages (new table - packages include spaces)
+		$sql_booking_packages = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}sb_booking_packages (
+			id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			booking_id  BIGINT UNSIGNED NOT NULL,
+			package_id BIGINT UNSIGNED NOT NULL,
+			space_id   BIGINT UNSIGNED NOT NULL,
+			created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_booking (booking_id),
+			KEY idx_package (package_id),
+			KEY idx_space  (space_id)
 		) $charset;";
 
 		// Pricing Rules
@@ -99,6 +124,8 @@ notes           TEXT            DEFAULT NULL,
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta($sql_bookings);
 		dbDelta($sql_extras);
+		dbDelta($sql_booking_spaces);
+		dbDelta($sql_booking_packages);
 		dbDelta($sql_pricing);
 
 		// Run migrations
@@ -108,6 +135,7 @@ notes           TEXT            DEFAULT NULL,
 		(new \SpaceBooking\Migrations\AddBookingMeta())->run();
 		(new \SpaceBooking\Migrations\MakeCustomerFieldsOptional())->run();
 		(new \SpaceBooking\Migrations\AddOrderId())->run();
+		(new \SpaceBooking\Migrations\CreateBookingSpacesTable())->run();
 
 		update_option('sb_db_version', SB_VERSION);
 	}

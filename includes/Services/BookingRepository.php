@@ -310,9 +310,9 @@ class BookingRepository
 
 	/**
 	 * UNIFIED: Get ALL blocking intervals for spaces.
-	 * SIMPLE APPROACH - No subqueries needed!
+	 * FIXED: Now also queries sb_booking_spaces table for linked spaces.
 	 *
-	 * The space_id column is the ultimate truth. If a space's ID appears in the
+	 * When selecting multiple spaces (e.g., 223, 10, 224):
 	 * space_id column (whether as lead or shadow), it's blocked for that time.
 	 *
 	 * When booking A+B+C:
@@ -341,20 +341,33 @@ class BookingRepository
 		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
 		$space_ids_params = $space_ids;
 
-		// SQL DUMP (for verification):
-		// SELECT start_time as start, end_time as end
-		// FROM wp_prefix sb_bookings
-		// WHERE space_id IN (:space_ids)
-		//   AND booking_date = :date
-		//   AND (
-		//       status IN ('confirmed', 'in_review', 'paid')
-		//       OR (status = 'pending' AND expired_at > NOW())
-		//   )
-		// ORDER BY start_time
-		//
-		// This ensures ONLY non-expired pending bookings block:
-		// - expired_at must be in the future (> NOW())
-		// - No more zombie locks from '0000-00-00' timestamps
+		// STEP 1: Find all booking_ids where any of the requested spaces appear
+		// Either in sb_bookings (direct) OR in sb_booking_spaces (linked)
+		$booking_id_query = $wpdb->prepare("
+			SELECT DISTINCT b.id as booking_id
+			FROM {$wpdb->prefix}sb_bookings b
+			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
+			WHERE (
+				b.space_id IN ({$space_ids_placeholder})
+				OR bs.space_id IN ({$space_ids_placeholder})
+			)
+			AND b.booking_date = %s
+			AND (
+				b.status IN ('confirmed', 'in_review', 'paid')
+				OR (b.status = 'pending' AND b.expired_at > NOW())
+			)",
+			...array_merge($space_ids_params, $space_ids_params, [$date]));
+
+		error_log('SB_DEBUG: get_blocking_intervals booking_id query: ' . str_replace("\n", ' ', $booking_id_query));
+
+		$booking_ids = $wpdb->get_col($booking_id_query) ?: [];
+
+		if (empty($booking_ids)) {
+			return [];
+		}
+
+		// STEP 2: Get blocking intervals for all found booking_ids
+		$booking_ids_placeholder = implode(',', array_fill(0, count($booking_ids), '%d'));
 
 		$query = $wpdb->prepare("
 			SELECT start_time as start, end_time as end
@@ -492,5 +505,160 @@ class BookingRepository
 				['%d', '%d', '%d']
 			);
 		}
+	}
+
+	// ==================== NEW SCHEMA METHODS ====================
+	// These methods support the new booking architecture without lead/shadow logic
+
+	/**
+	 * NEW: Link a space to a booking (sb_booking_spaces table).
+	 * Falls back gracefully if table doesn't exist.
+	 */
+	public function link_space(int $booking_id, int $space_id, string $start_time, string $end_time, ?int $package_id = null): void
+	{
+		global $wpdb;
+		$table = $wpdb->prefix . 'sb_booking_spaces';
+
+		// Check if table exists
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+		if (!$table_exists) {
+			error_log("SB WARNING: Table $table does not exist, skipping link_space for booking #$booking_id space $space_id");
+			return;  // Gracefully skip instead of throwing
+		}
+
+		$result = $wpdb->insert(
+			$table,
+			[
+				'booking_id' => $booking_id,
+				'space_id' => $space_id,
+				'package_id' => $package_id,
+				'start_time' => $start_time,
+				'end_time' => $end_time,
+			],
+			['%d', '%d', '%d', '%s', '%s']
+		);
+
+		if (false === $result) {
+			error_log("SB WARNING: Failed to link space $space_id to booking $booking_id: " . $wpdb->last_error);
+			throw new \RuntimeException('Failed to link space: ' . $wpdb->last_error);
+		}
+	}
+
+	/**
+	 * NEW: Link an extra to a booking with time slot (sb_booking_extras table).
+	 */
+	public function link_extra(int $booking_id, int $extra_id, string $start_time, string $end_time, int $quantity = 1, float $unit_price = 0.0): void
+	{
+		global $wpdb;
+
+		$wpdb->insert(
+			$wpdb->prefix . 'sb_booking_extras',
+			[
+				'booking_id' => $booking_id,
+				'extra_id' => $extra_id,
+				'start_time' => $start_time,
+				'end_time' => $end_time,
+				'quantity' => $quantity,
+				'unit_price' => $unit_price,
+			],
+			['%d', '%d', '%s', '%s', '%d', '%f']
+		);
+	}
+
+	/**
+	 * NEW: Link a package to a booking (sb_booking_packages table).
+	 * Booking a package includes the space it belongs to.
+	 */
+	public function link_package(int $booking_id, int $package_id, int $space_id): void
+	{
+		global $wpdb;
+
+		$wpdb->insert(
+			$wpdb->prefix . 'sb_booking_packages',
+			[
+				'booking_id' => $booking_id,
+				'package_id' => $package_id,
+				'space_id' => $space_id,
+			],
+			['%d', '%d', '%d']
+		);
+	}
+
+	/**
+	 * NEW: Get all spaces linked to a booking.
+	 */
+	public function get_linked_spaces(int $booking_id): array
+	{
+		global $wpdb;
+
+		$spaces = $wpdb->get_results($wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}sb_booking_spaces WHERE booking_id = %d",
+			$booking_id
+		), ARRAY_A) ?: [];
+
+		foreach ($spaces as &$space) {
+			$post = get_post($space['space_id']);
+			$space['title'] = $post ? $post->post_title : 'Unknown Space';
+		}
+
+		return $spaces;
+	}
+
+	/**
+	 * NEW: Get all packages linked to a booking.
+	 */
+	public function get_linked_packages(int $booking_id): array
+	{
+		global $wpdb;
+
+		return $wpdb->get_results($wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}sb_booking_packages WHERE booking_id = %d",
+			$booking_id
+		), ARRAY_A) ?: [];
+	}
+
+	/**
+	 * Delete a booking and all its linked data.
+	 */
+	public function delete(int $booking_id): bool
+	{
+		global $wpdb;
+
+		// Delete linked spaces
+		$wpdb->delete(
+			$wpdb->prefix . 'sb_booking_spaces',
+			['booking_id' => $booking_id],
+			['%d']
+		);
+
+		// Delete linked extras
+		$wpdb->delete(
+			$wpdb->prefix . 'sb_booking_extras',
+			['booking_id' => $booking_id],
+			['%d']
+		);
+
+		// Delete linked packages
+		$wpdb->delete(
+			$wpdb->prefix . 'sb_booking_packages',
+			['booking_id' => $booking_id],
+			['%d']
+		);
+
+		// Delete meta
+		$wpdb->delete(
+			$wpdb->prefix . 'sb_booking_meta',
+			['booking_id' => $booking_id],
+			['%d']
+		);
+
+		// Delete main booking
+		$result = $wpdb->delete(
+			$wpdb->prefix . 'sb_bookings',
+			['id' => $booking_id],
+			['%d']
+		);
+
+		return false !== $result;
 	}
 }

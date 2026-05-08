@@ -219,36 +219,45 @@ final class BookingController extends WP_REST_Controller
 			return new WP_REST_Response(['message' => 'Could not save booking.'], 500);
 		}
 
-		// ── UNIFIED: Create additional rows for all selected spaces ────────
-		// NEW ARCHITECTURE: Instead of shadow bookings, we create individual rows
-		// for each selected space_id. All rows get the same order_id for tracking.
-		// This ensures simple space_id-based queries work for availability.
-
-		// FIXED: Update lead row's order_id first, then create additional rows
-		global $wpdb;
-		$wpdb->update(
-			$wpdb->prefix . 'sb_bookings',
-			['order_id' => $booking_id],
-			['id' => $booking_id],
-			['%d'],
-			['%d']
-		);
+		// ── NEW SCHEMA: Link additional spaces using link_space ────────
+		// Instead of creating shadow rows, we link spaces to the booking
+		// using the sb_booking_spaces table. Each space gets its own row
+		// with the same booking_id for tracking.
 
 		$other_spaces = array_values(array_diff($selected_item_ids, [$lead_space_id]));
 		foreach ($other_spaces as $sid) {
 			try {
-				$this->repo->create_booking_row([
-					'space_id' => $sid,
-					'package_id' => $package_id,
-					'order_id' => $booking_id,  // Link to lead row for group tracking
-					'booking_date' => $date,
-					'start_time' => $start_time,
-					'end_time' => $end_time,
-					'status' => 'pending',
-					'expired_at' => date('Y-m-d H:i:s', strtotime('+30 minutes')),
-				]);
+				// Use new link_space method instead of create_booking_row
+				$this->repo->link_space($booking_id, $sid, $start_time, $end_time, $package_id);
 			} catch (\RuntimeException $e) {
-				error_log('Failed to create additional row for booking #' . $booking_id . ' space ' . $sid . ': ' . $e->getMessage());
+				error_log('Failed to link space for booking #' . $booking_id . ' space ' . $sid . ': ' . $e->getMessage());
+			}
+		}
+
+		// Also link extras using the new link_extra method
+		if (!empty($extras)) {
+			foreach ($extras as $extra) {
+				try {
+					$this->repo->link_extra(
+						$booking_id,
+						(int) $extra['extra_id'],
+						$start_time,
+						$end_time,
+						(int) ($extra['quantity'] ?? 1),
+						(float) ($extra['price'] ?? 0.0)
+					);
+				} catch (\RuntimeException $e) {
+					error_log('Failed to link extra for booking #' . $booking_id . ' extra ' . $extra['extra_id'] . ': ' . $e->getMessage());
+				}
+			}
+		}
+
+		// If booking a package, link it using the new link_package method
+		if ($package_id) {
+			try {
+				$this->repo->link_package($booking_id, $package_id, $lead_space_id);
+			} catch (\RuntimeException $e) {
+				error_log('Failed to link package for booking #' . $booking_id . ' package ' . $package_id . ': ' . $e->getMessage());
 			}
 		}
 
