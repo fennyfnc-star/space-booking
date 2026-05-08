@@ -136,7 +136,16 @@ export function Step5Checkout() {
         <div className="sb-summary-grid">
           <div className="sb-summary-row">
             <span>Space</span>
-            <span>{selectedItems[0]?.title ?? "Multiple Items"}</span>
+            <span>
+              {(() => {
+                const spaceTitles = selectedItems
+                  .filter((item) => item.type === "space")
+                  .map((item) => item.title);
+                return spaceTitles.length > 0
+                  ? spaceTitles.join(", ")
+                  : (selectedItems[0]?.title ?? "No space selected");
+              })()}
+            </span>
           </div>
           <div className="sb-summary-row">
             <span>Date</span>

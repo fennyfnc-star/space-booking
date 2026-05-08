@@ -147,12 +147,21 @@ export function Step6Payment() {
     <div className="sb-step sb-step-6">
       <h2 className="sb-step__title">Complete Booking</h2>
       <div className="sb-checkout-summary">
-        <h3>Final Review</h3>
+        <h3>Final Review</h3> 
 
         <div className="sb-summary-grid">
           <div className="sb-summary-row">
             <span>Space</span>
-            <span>{selectedItems[0]?.title ?? "Multiple Items"}</span>
+            <span>
+              {(() => {
+                const spaceTitles = selectedItems
+                  .filter((item) => item.type === "space")
+                  .map((item) => item.title);
+                return spaceTitles.length > 0
+                  ? spaceTitles.join(", ")
+                  : (selectedItems[0]?.title ?? "No space selected");
+              })()}
+            </span>
           </div>
           <div className="sb-summary-row">
             <span>Date</span>
