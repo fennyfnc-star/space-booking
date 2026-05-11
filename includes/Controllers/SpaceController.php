@@ -122,6 +122,10 @@ final class SpaceController extends WP_REST_Controller
 	{
 		$space_id = (int) get_post_meta($post->ID, '_sb_package_space_id', true);
 		$extra_ids = get_post_meta($post->ID, '_sb_package_extra_ids', true);
+		$space_ids = get_post_meta($post->ID, '_sb_package_space_ids', true);
+		if (!is_array($space_ids) || empty($space_ids)) {
+			$space_ids = $space_id ? [$space_id] : [];
+		}
 
 		return [
 			'id' => $post->ID,
@@ -133,6 +137,7 @@ final class SpaceController extends WP_REST_Controller
 			'space_id' => $space_id,
 			'space_name' => $space_id ? get_the_title($space_id) : null,
 			'extra_ids' => is_array($extra_ids) ? $extra_ids : [],
+			'space_ids' => array_map('intval', $space_ids),
 		];
 	}
 

@@ -73,9 +73,12 @@ export function Step1Selection() {
   // Check if a space is covered by a selected package
   const isCoveredByPackage = useCallback(
     (item: Space | Package) => {
-      return packageCoverage.some((pc) =>
-        pc.coveredSpaceIds.includes(Number(item.id)),
+      const itemId = Number(item.id);
+      const result = packageCoverage.some((pc) =>
+        pc.coveredSpaceIds.includes(itemId),
       );
+      console.log("🔍 isCoveredByPackage:", itemId, "result:", result, "packageCoverage:", packageCoverage);
+      return result;
     },
     [packageCoverage],
   );
@@ -83,11 +86,42 @@ export function Step1Selection() {
   // Get the package that covers a given space
   const getCoveringPackage = useCallback(
     (spaceId: number) => {
-      return packageCoverage.find((pc) =>
+      const result = packageCoverage.find((pc) =>
         pc.coveredSpaceIds.includes(spaceId),
       );
+      console.log("🔍 getCoveringPackage:", spaceId, "result:", result);
+      return result;
     },
     [packageCoverage],
+  );
+
+  // Check if a package's spaces are already selected (should show lock)
+  const isPackageBlockedBySelection = useCallback(
+    (item: Space | Package) => {
+      const pkg = item as Package;
+      if (!pkg.space_ids || !Array.isArray(pkg.space_ids) || pkg.space_ids.length === 0) {
+        return false;
+      }
+      // Check if any of the package's spaces are already selected
+      const hasSelectedSpace = selectedItems.some((sel) =>
+        pkg.space_ids!.includes(Number(sel.id)),
+      );
+      console.log("🔒 isPackageBlockedBySelection:", item.id, "space_ids:", pkg.space_ids, "hasSelectedSpace:", hasSelectedSpace);
+      return hasSelectedSpace;
+    },
+    [selectedItems],
+  );
+
+  // Get the selected space names that block a package
+  const getBlockingSpaceNames = useCallback(
+    (item: Space | Package) => {
+      const pkg = item as Package;
+      if (!pkg.space_ids || !Array.isArray(pkg.space_ids)) return [];
+      return selectedItems
+        .filter((sel) => pkg.space_ids!.includes(Number(sel.id)))
+        .map((sel) => sel.title);
+    },
+    [selectedItems],
   );
 
   const canProceed = selectedItems.length > 0 && !hasCartBooking;
@@ -95,22 +129,30 @@ export function Step1Selection() {
   const renderCard = (item: Space | Package, type: "space" | "package") => {
     const selected = isSelectedCard(item);
     const locked = isLockedCard(item);
+    const covered = isCoveredByPackage(item);
+    const packageBlocked = type === "package" && isPackageBlockedBySelection(item);
+    const blockingNames = type === "package" ? getBlockingSpaceNames(item) : [];
     const space = item as Space;
     const overrides = space.price_overrides ?? [];
     const itemId = item.id;
+    
+    // Card is locked if either locked by physical overlap OR blocked by selected spaces
+    const isCardLocked = locked || packageBlocked;
+    
+    console.log("🎴 renderCard:", itemId, "type:", type, "selected:", selected, "locked:", locked, "covered:", covered, "packageBlocked:", packageBlocked);
 
     return (
       <div
         key={itemId}
         className={`sb-card 
           ${selected ? "sb-card--selected" : ""} 
-          ${locked ? "sb-card--locked opacity-50 cursor-not-allowed" : "cursor-pointer"}
+          ${isCardLocked ? "sb-card--locked opacity-50 cursor-not-allowed" : "cursor-pointer"}
         `}
-        onClick={!locked ? () => handleSelect(item, type) : undefined}
+        onClick={!isCardLocked ? () => handleSelect(item, type) : undefined}
         role="button"
-        tabIndex={locked ? -1 : 0}
+        tabIndex={isCardLocked ? -1 : 0}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !locked) handleSelect(item, type);
+          if (e.key === "Enter" && !isCardLocked) handleSelect(item, type);
         }}
       >
         <img
@@ -193,21 +235,30 @@ export function Step1Selection() {
             ✓
           </span>
         )}
-        {locked && (
+        {isCardLocked && (
           <span
             className="sb-card__lock"
-            aria-label="Locked by package selection"
+            aria-label={packageBlocked ? "Locked by selected space" : "Locked by package selection"}
           >
             🔒
           </span>
         )}
         {/* Show "Included in package" badge for spaces covered by selected packages */}
-        {type === "space" && isCoveredByPackage(item) && !selected && (
+        {type === "space" && covered && !selected && (
           <span
             className="sb-card__badge sb-card__badge--package"
             aria-label="Included in package"
           >
             📦 Included in "{getCoveringPackage(Number(item.id))?.packageTitle}"
+          </span>
+        )}
+        {/* Show "Space selected" badge for packages blocked by selected spaces */}
+        {type === "package" && packageBlocked && !selected && blockingNames.length > 0 && (
+          <span
+            className="sb-card__badge sb-card__badge--space"
+            aria-label="Blocked by selected space"
+          >
+            🔒 Space already selected: {blockingNames.join(", ")}
           </span>
         )}
       </div>

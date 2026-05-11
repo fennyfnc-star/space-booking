@@ -302,6 +302,10 @@
   background: #8b5cf6;
 }
 
+.sb-card__badge--space {
+  background: #ef4444;
+}
+
 .sb-price-overrides {
   margin-top: 4px;
   font-size: 0.8em;

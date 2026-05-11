@@ -220,12 +220,18 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       (i) => Number(i.id) === targetId,
     );
 
+    console.log("🔄 toggleItem called:", targetId, "title:", item.title, "isSelected:", isSelected);
+    console.log("  current packageCoverage:", state.packageCoverage);
+    console.log("  current selectedItems:", state.selectedItems.map(i => i.id));
+
 // Check if this is a package (has space_ids)
     const isPackage = "space_ids" in item && 
       Array.isArray(item.space_ids) && 
       item.space_ids.length > 0;
     const packageSpaceIds = isPackage ? item.space_ids! : [];
     const itemTitle = item.title || "Item";
+    
+    console.log("  isPackage:", isPackage, "space_ids:", packageSpaceIds);
 
     if (isSelected) {
       // REMOVAL - remove from both selectedItems and packageCoverage
@@ -351,6 +357,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
             coveredSpaceIds: packageSpaceIds,
           },
         ];
+        console.log("📦 Added packageCoverage:", newPackageCoverage);
       }
       
       const computeLocked = (items: SelectionItem[]): number[] => {
