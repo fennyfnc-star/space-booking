@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { createBooking, checkCartHasBooking, fetchPricing } from "@/utils/api";
+import type { Package } from "@/types";
 
 export function Step6Payment() {
   const {
@@ -42,9 +43,24 @@ export function Step6Payment() {
       if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime)
         return;
 
+      // Build item_ids from resolved space IDs (not package IDs)
+      const itemIds: number[] = [];
+      for (const item of selectedItems) {
+        if (item.type === "space") {
+          itemIds.push(Number(item.id));
+        } else if (item.type === "package") {
+          const pkg = item as Package;
+          if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
+            itemIds.push(...pkg.space_ids);
+          } else if (pkg.space_id) {
+            itemIds.push(pkg.space_id);
+          }
+        }
+      }
+      
       const pricingParams = {
         space_id: spaceId,
-        item_ids: selectedItems.map((i) => i.id),
+        item_ids: itemIds,
         date: selectedDate,
         start_time: selectedStartTime,
         end_time: selectedEndTime,

@@ -22,6 +22,20 @@ interface PackageCoverage {
   coveredSpaceIds: number[];
 }
 
+// Helper: Compute locked resource IDs from selected items
+const computeLockedResourceIds = (
+  items: SelectionItem[],
+  resourceMap: Record<number, ResourceFootprint> | null,
+): number[] => {
+  if (!resourceMap) return [];
+  const locked = new Set<number>();
+  for (const it of items) {
+    const footprint = resourceMap[it.id]?.footprint ?? [it.id];
+    footprint.forEach((id) => locked.add(id));
+  }
+  return Array.from(locked);
+};
+
 interface BookingState {
   bookingPolicy: string;
   currentStep: BookingStep;
@@ -55,8 +69,10 @@ interface BookingState {
   setStartTime: (time: string) => void;
   setEndTime: (time: string) => void;
   setAvailableExtras: (extras: Extra[]) => void;
+  setSelectedExtras: (extras: SelectedExtra[]) => void;
+  setIncludedExtras: (extraIds: number[]) => void;
   toggleItem: (item: Space | Package) => void;
-  toggleExtra: (extra_id: number, quantity?: number) => void;
+  toggleExtra: (extra_id: number, quantity?: number, included?: boolean) => void;
   setCustomerField: (key: string, value: CustomerValue) => void;
   setCustomerFields: (fields: CustomField[]) => void;
   fetchCustomerFields: () => Promise<void>;
@@ -160,16 +176,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       alert("Conflicts with current selection: overlaps physical resources.");
       return;
     }
-    const computeLocked = (items: SelectionItem[]): number[] => {
-      const locked = new Set<number>();
-      for (const it of items) {
-        const footprint = map[it.id]?.footprint ?? [it.id];
-        footprint.forEach((id) => locked.add(id));
-      }
-      return Array.from(locked);
-    };
     const newSelected = [...state.selectedItems, item];
-    const newLocked = computeLocked(newSelected);
+    const newLocked = computeLockedResourceIds(newSelected, map);
     console.log(
       "setting new selected:",
       newSelected.map((i) => i.id),
@@ -192,16 +200,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return;
     }
     const map = state.resourceMap;
-    const computeLocked = (items: SelectionItem[]): number[] => {
-      const locked = new Set<number>();
-      for (const it of items) {
-        const footprint = map[it.id]?.footprint ?? [it.id];
-        footprint.forEach((id) => locked.add(id));
-      }
-      return Array.from(locked);
-    };
     const newSelected = state.selectedItems.filter((i) => i.id !== id);
-    const newLocked = computeLocked(newSelected);
+    const newLocked = computeLockedResourceIds(newSelected, map);
     console.log(
       "setting new selected:",
       newSelected.map((i) => i.id),
@@ -246,18 +246,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
           (pc) => pc.packageId !== targetId,
         );
       }
-      
-      const computeLocked = (items: SelectionItem[]): number[] => {
-        const map = state.resourceMap;
-        if (!map) return [];
-        const locked = new Set<number>();
-        for (const it of items) {
-          const footprint = map[it.id]?.footprint ?? [it.id];
-          footprint.forEach((id) => locked.add(id));
-        }
-        return Array.from(locked);
-      };
-      const newLocked = computeLocked(updatedItems);
+
+      const newLocked = computeLockedResourceIds(updatedItems, state.resourceMap);
       set({ 
         selectedItems: updatedItems, 
         lockedResourceIds: newLocked,
@@ -359,16 +349,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         ];
         console.log("📦 Added packageCoverage:", newPackageCoverage);
       }
-      
-      const computeLocked = (items: SelectionItem[]): number[] => {
-        const locked = new Set<number>();
-        for (const it of items) {
-          const footprint = map[it.id]?.footprint ?? [it.id];
-          footprint.forEach((id) => locked.add(id));
-        }
-        return Array.from(locked);
-      };
-      const newLocked = computeLocked(updatedItems);
+
+      const newLocked = computeLockedResourceIds(updatedItems, map);
       set({ 
         selectedItems: updatedItems, 
         lockedResourceIds: newLocked,
@@ -411,19 +393,9 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
       console.log("  NO resourceMap, returning []");
       return [];
     }
-    const map = state.resourceMap;
-    const computeLocked = (items: SelectionItem[]): number[] => {
-      const locked = new Set<number>();
-      for (const it of items) {
-        const footprint = map[it.id]?.footprint ?? [it.id];
-        console.log("  item", it.id, "footprint:", footprint);
-        footprint.forEach((id) => locked.add(id));
-      }
-      const result = Array.from(locked);
-      console.log("  FINAL lockedResourceIds:", result);
-      return result;
-    };
-    return computeLocked(state.selectedItems);
+    const result = computeLockedResourceIds(state.selectedItems, state.resourceMap);
+    console.log("  FINAL lockedResourceIds:", result);
+    return result;
   },
 
   setSpace: (space: Space | null) => {
@@ -469,7 +441,12 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     set({ availableExtras: extras });
   },
 
-  toggleExtra: (extra_id: number, quantity: number = 1) => {
+  setSelectedExtras: (extras: SelectedExtra[]) => {
+    console.log("📦 STORE setSelectedExtras:", extras.length, "extras");
+    set({ selectedExtras: extras });
+  },
+
+  toggleExtra: (extra_id: number, quantity: number = 1, included: boolean = false) => {
     const current = get().selectedExtras;
     console.group("🔄 STORE toggleExtra");
     console.log(
@@ -481,18 +458,29 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     const exists = current.find((e) => e.extra_id === extra_id);
 
     if (exists) {
-      // Remove
-      const newExtras = current.filter((e) => e.extra_id !== extra_id);
-      console.log(
-        "REMOVE - new selectedExtras:",
-        newExtras.map((e) => e.extra_id),
-      );
-      set({
-        selectedExtras: newExtras,
-      });
+      // If included, cannot remove completely - just reduce quantity
+      if (exists.included) {
+        // If trying to remove included extra, reduce to minimum (included qty only)
+        const newExtras = current.map((e) =>
+          e.extra_id === extra_id ? { ...e, quantity: 1, included: true } : e
+        );
+        console.log(
+          "REDUCE TO INCLUDED - new selectedExtras:",
+          newExtras.map((e) => e.extra_id),
+        );
+        set({ selectedExtras: newExtras });
+      } else {
+        // Remove completely (non-included)
+        const newExtras = current.filter((e) => e.extra_id !== extra_id);
+        console.log(
+          "REMOVE - new selectedExtras:",
+          newExtras.map((e) => e.extra_id),
+        );
+        set({ selectedExtras: newExtras });
+      }
     } else {
-      // Add
-      const newExtras = [...current, { extra_id, quantity }];
+      // Add (new extra or re-add included)
+      const newExtras = [...current, { extra_id, quantity, included }];
       console.log(
         "ADD - new selectedExtras:",
         newExtras.map((e) => e.extra_id),
@@ -500,6 +488,35 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
       set({ selectedExtras: newExtras });
     }
     console.groupEnd();
+  },
+
+  // Set included extras from package (auto-added)
+  setIncludedExtras: (extraIds: number[]) => {
+    const current = get().selectedExtras;
+    console.log("🔄 setIncludedExtras:", extraIds);
+
+    // Build new extras array, updating existing entries or adding new ones
+    const newExtrasMap = new Map<number, SelectedExtra>();
+
+    // First, add all current extras
+    for (const e of current) {
+      newExtrasMap.set(e.extra_id, e);
+    }
+
+    // Then, update/add included extras
+    for (const extraId of extraIds) {
+      const exists = newExtrasMap.get(extraId);
+      if (!exists) {
+        // New extra - add as included
+        newExtrasMap.set(extraId, { extra_id: extraId, quantity: 1, included: true });
+      } else if (!exists.included) {
+        // Update existing non-included to included (keep higher quantity if any)
+        newExtrasMap.set(extraId, { ...exists, included: true });
+      }
+      // If already included, do nothing (keep existing)
+    }
+
+    set({ selectedExtras: Array.from(newExtrasMap.values()) });
   },
 
   // ── Step 4 ───────────────────────────────────────────────────────────────
@@ -676,6 +693,7 @@ reset: () => {
       availableExtras: [],
       selectedExtras: [],
       customerInfo: { ...DEFAULT_CUSTOMER },
+      customerFields: [],
       checkoutUrl: null,
       bookingId: null,
       bookingStatus: "pending",

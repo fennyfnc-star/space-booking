@@ -201,6 +201,7 @@ declare global {
 export interface SelectedExtra {
   extra_id: number;
   quantity: number;
+  included?: boolean; // true if included with package (cannot be removed below this qty)
 }
 
 // ── Booking wizard step state ─────────────────────────────────────────────────

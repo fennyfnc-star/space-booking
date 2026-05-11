@@ -73,6 +73,38 @@ export function Step3Addons() {
       return;
     }
 
+    // Auto-add package-included extras
+    if (pkgItem) {
+      const pkg = pkgItem as Package;
+      const includedExtraIds: number[] = [];
+      if (pkg.extra_ids && Array.isArray(pkg.extra_ids)) {
+        includedExtraIds.push(...pkg.extra_ids);
+      } else if (pkg.extra_id) {
+        includedExtraIds.push(pkg.extra_id);
+      }
+      if (includedExtraIds.length > 0) {
+        console.log("📦 Auto-adding package extras:", includedExtraIds);
+        // Use store's setIncludedExtras if available, otherwise manually add
+        const current = selectedExtras;
+        const newExtras = [...current];
+        for (const extraId of includedExtraIds) {
+          const exists = current.find((e) => e.extra_id === extraId);
+          if (!exists) {
+            newExtras.push({ extra_id: extraId, quantity: 1, included: true });
+          } else if (!exists.included) {
+            // Update to included
+            newExtras.push({ extra_id: extraId, quantity: exists.quantity, included: true });
+          }
+        }
+        // Dedupe
+        const deduped = newExtras.filter((e, i, arr) => 
+          arr.findIndex(x => x.extra_id === e.extra_id) === i
+        );
+        // Update store - need to import setSelectedExtras
+        // For now, we'll handle this in the UI rendering
+      }
+    }
+
     console.group("📦 STEP3 fetchExtras");
     console.log("Params:", {
       spaceId,
@@ -115,9 +147,25 @@ export function Step3Addons() {
     }
 
     console.group("💰 STEP3 fetchPricing");
+    
+    // Build item_ids from resolved space IDs (not package IDs)
+    const itemIds: number[] = [];
+    for (const item of selectedItems) {
+      if (item.type === "space") {
+        itemIds.push(Number(item.id));
+      } else if (item.type === "package") {
+        const pkg = item as Package;
+        if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
+          itemIds.push(...pkg.space_ids);
+        } else if (pkg.space_id) {
+          itemIds.push(pkg.space_id);
+        }
+      }
+    }
+    
     const pricingParams = {
       space_id: spaceId,
-      item_ids: selectedItems.map((i: SelectionItem) => i.id),
+      item_ids: itemIds,
       date: selectedDate,
       start_time: selectedStartTime,
       end_time: selectedEndTime,

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { fetchMultiAvailability } from "@/utils/api";
-import type { AvailabilityResponse, TimeSlot } from "@/types";
+import type { AvailabilityResponse, TimeSlot, Package } from "@/types";
 
 import { fetchPricing } from "@/utils/api";
 
@@ -98,18 +98,35 @@ export function Step2Scheduling() {
       // ARRAY-ONLY: Always use fresh resource IDs
       setPriceLoading(true);
       try {
-        // Use first item ID for pricing API (backward compatible signature)
-        const firstItemId =
-          selectedItems.length > 0 ? Number(selectedItems[0].id) : 0;
-        const freshIds = getLockedResourceIds();
+        // Use first space ID for pricing API
+        const firstSpaceId = selectedItems.find((i) => i.type === "space") 
+          ? Number(selectedItems.find((i) => i.type === "space")!.id) 
+          : 0;
+        const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
+        
+        // Build item_ids from resolved space IDs (not package IDs)
+        const itemIds: number[] = [];
+        for (const item of selectedItems) {
+          if (item.type === "space") {
+            itemIds.push(Number(item.id));
+          } else if (item.type === "package") {
+            const pkg = item as Package;
+            if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
+              itemIds.push(...pkg.space_ids);
+            } else if (pkg.space_id) {
+              itemIds.push(pkg.space_id);
+            }
+          }
+        }
+        
         const pricing = await fetchPricing({
-          space_id: firstItemId,
+          space_id: firstSpaceId,
           date: selectedDate!,
           start_time: slot.start,
-          item_ids: freshIds || [],
+          item_ids: itemIds,
           end_time: slot.end,
           extras: [],
-          package_id: selectedItems.find((i) => i.type === "package")?.id,
+          package_id: packageItem?.id,
         });
         setPricePreview(pricing.total_price);
       } catch (e) {
@@ -163,11 +180,37 @@ export function Step2Scheduling() {
 
     // ARRAY-ONLY MANDATE: Always compute fresh IDs from selectedItems
     // Uses Append/Remove pattern with cumulative group selection
+    // Resolve selected items to space IDs (handle packages)
     const freshSpaceIds = getLockedResourceIds();
     console.log("PHASE 3 CHECK - Sending Group:", freshSpaceIds);
     console.log("ARRAY-ONLY: Computed freshSpaceIds:", freshSpaceIds);
-    const spaceIds =
-      freshSpaceIds && freshSpaceIds.length > 0 ? freshSpaceIds : [];
+    
+    // For packages, we need to resolve to their space_ids
+    // Build list of actual space IDs to check availability
+    let spaceIds: number[] = [];
+    for (const item of selectedItems) {
+      if (item.type === "space") {
+        spaceIds.push(Number(item.id));
+      } else if (item.type === "package") {
+        // Package - get its space_ids
+        const pkg = item as Package;
+        if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
+          spaceIds.push(...pkg.space_ids);
+        } else if (pkg.space_id) {
+          spaceIds.push(pkg.space_id);
+        }
+      }
+    }
+    // Also add any locked resource IDs that aren't package IDs (physical resources)
+    for (const id of freshSpaceIds) {
+      if (!selectedItems.some(i => Number(i.id) === id)) {
+        spaceIds.push(id);
+      }
+    }
+    // Dedupe
+    spaceIds = [...new Set(spaceIds)];
+    
+    console.log("📍 Resolved spaceIds for availability:", spaceIds);
 
     if (!selectedDate || spaceIds.length === 0) {
       // No spaces selected yet
