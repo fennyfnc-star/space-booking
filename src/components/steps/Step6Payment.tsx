@@ -43,17 +43,17 @@ export function Step6Payment() {
       if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime)
         return;
 
-      // Build item_ids from resolved space IDs (not package IDs)
+      // Build item_ids - include package ID when package is selected so backend uses flat price
       const itemIds: number[] = [];
-      for (const item of selectedItems) {
-        if (item.type === "space") {
-          itemIds.push(Number(item.id));
-        } else if (item.type === "package") {
-          const pkg = item as Package;
-          if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
-            itemIds.push(...pkg.space_ids);
-          } else if (pkg.space_id) {
-            itemIds.push(pkg.space_id);
+      const packageId = selectedItems.find((i) => i.type === "package")?.id;
+      if (packageId) {
+        // Package selected: use package ID so backend applies flat price
+        itemIds.push(Number(packageId));
+      } else {
+        // Space-only: use space IDs
+        for (const item of selectedItems) {
+          if (item.type === "space") {
+            itemIds.push(Number(item.id));
           }
         }
       }
@@ -70,6 +70,12 @@ export function Step6Payment() {
 
       try {
         const res = await fetchPricing(pricingParams);
+        console.group("💰 STEP6 PRICING RESPONSE");
+        console.log("pricingParams:", pricingParams);
+        console.log("res:", res);
+        console.log("res.breakdown:", res.breakdown);
+        console.log("res.total_price:", res.total_price);
+        console.groupEnd();
         useBookingStore
           .getState()
           .setPriceBreakdown(res.breakdown, res.total_price);
@@ -96,16 +102,22 @@ export function Step6Payment() {
     }
 
     // Normal flow: create new booking
-    const selectedItemIds = useBookingStore
-      .getState()
-      .selectedItems.map((item) => item.id);
-    const spaceId = selectedItemIds[0] || 0; // lead space
-    const packageId = useBookingStore
-      .getState()
-      .selectedItems.find((i) => i.type === "package")?.id;
+    const selectedItems = useBookingStore.getState().selectedItems;
+    const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
+    const spaceItem = selectedItems.find((i) => i.type === "space") as Space | undefined;
+    
+    // Get actual space ID - if package, get its primary space
+    let spaceId = spaceItem?.id || 0;
+    if (packageItem && !spaceId) {
+      const pkg = packageItem as Package;
+      spaceId = pkg.space_id || (pkg.space_ids?.[0]) || 0;
+    }
+    
+    const packageId = packageItem?.id;
+    const selectedItemIds = selectedItems.map((item) => item.id);
 
-    if (!spaceId) {
-      setError("No space selected.");
+    if (!spaceId && !packageId) {
+      setError("No space or package selected.");
       return;
     }
 

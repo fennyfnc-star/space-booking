@@ -82,6 +82,31 @@ final class PricingService
 					'label' => $item_title,
 					'amount' => $package_price,
 				];
+				
+				// Add package's primary space as Package Inclusion
+				$pkg_space_id = (int) get_post_meta($item_id, '_sb_package_space_id', true);
+				if ($pkg_space_id) {
+					$space_title = get_the_title($pkg_space_id);
+					$item_breakdown[] = [
+						'label' => $space_title . ' (Package Inclusion)',
+						'amount' => 0
+					];
+				}
+				
+				// Add package's included extras as Package Inclusion
+				$pkg_extra_ids = get_post_meta($item_id, '_sb_package_extra_ids', true);
+				if (is_array($pkg_extra_ids)) {
+					foreach ($pkg_extra_ids as $item) {
+						$extra_id = is_array($item) ? (int) ($item['extra_id'] ?? $item['id'] ?? 0) : (int) $item;
+						if ($extra_id > 0) {
+							$extra_title = get_the_title($extra_id);
+							$item_breakdown[] = [
+								'label' => $extra_title . ' (Package Inclusion)',
+								'amount' => 0
+							];
+						}
+					}
+				}
 			} else if ($item_type === 'sb_space') {
 				$item_duration = $duration_hours;
 				$total_duration += $item_duration;
@@ -158,14 +183,15 @@ final class PricingService
 		}
 
 		$display_duration = $duration_hours;
-		$extras_price = $this->calculate_extras($extras);
+		// Use package-aware extras calculation
+		$extras_result = $this->calculate_extras_with_allowance($extras, $package_id);
+		$extras_price = $extras_result['total'];
 		$total = $running_total + $extras_price;
 
 		$breakdown = $enriched_breakdown;
 		$extras_breakdown = [];
 		if ($extras_price > 0) {
-			// NEW: Detailed extras breakdown
-			$extras_breakdown = $this->get_extras_breakdown($extras);
+			$extras_breakdown = $extras_result['breakdown'];
 			$breakdown = array_merge($breakdown, $extras_breakdown);
 		}
 
@@ -175,9 +201,10 @@ final class PricingService
 			'total_price' => round($total, 2),
 			'duration_hours' => $duration_hours,
 			'display_duration' => round($display_duration, 1),
-			'breakdown' => $breakdown,  // Backward compat: aggregated
-			'items' => $item_details,  // NEW: Per-item for WC
-			'extras_breakdown' => $extras_breakdown  // NEW: Detailed extras
+			'breakdown' => $breakdown,
+			'items' => $item_details,
+			'extras_breakdown' => $extras_breakdown,
+			'extras_details' => $extras_result['details']  // NEW: UI details with included/paid split
 		];
 	}
 
@@ -315,15 +342,125 @@ final class PricingService
 
 	// ── Extras ───────────────────────────────────────────────────────────────
 
-	private function calculate_extras(array $extras): float
+	/**
+	 * Calculate extras price with package allowance (first unit free logic)
+	 * 
+	 * @param array  $extras      [ ['extra_id' => int, 'quantity' => int], ... ]
+	 * @param int|null $package_id  Package ID to check for included extras
+	 * @return array {
+	 *   total: float,
+	 *   breakdown: array,
+	 *   details: array  // For UI: extra_id, title, total_qty, included_qty, paid_qty, unit_price
+	 * }
+	 */
+	private function calculate_extras_with_allowance(array $extras, ?int $package_id = null): array
 	{
 		$total = 0.0;
-		foreach ($extras as $item) {
-			$price = (float) get_post_meta((int) $item['extra_id'], '_sb_extra_price', true);
-			$quantity = max(1, (int) ($item['quantity'] ?? 1));
-			$total += $price * $quantity;
+		$breakdown = [];
+		$details = [];
+		
+		// Get included extras from package
+		$included_extras = [];
+		if ($package_id) {
+			$pkg_extra_ids = get_post_meta($package_id, '_sb_package_extra_ids', true);
+			if (is_array($pkg_extra_ids)) {
+				foreach ($pkg_extra_ids as $item) {
+					// Support both flat array [5, 10] and object array [{extra_id: 5, quantity: 1}, ...]
+					if (is_array($item)) {
+						$extra_id = (int) ($item['extra_id'] ?? $item['id'] ?? 0);
+						$qty = (int) ($item['quantity'] ?? 1);
+					} else {
+						// Flat array format: just the ID
+						$extra_id = (int) $item;
+						$qty = 1;
+					}
+					if ($extra_id > 0) {
+						$included_extras[$extra_id] = $qty;
+					}
+				}
+			}
 		}
-		return round($total, 2);
+		
+		foreach ($extras as $item) {
+			$extra_id = (int) $item['extra_id'];
+			$requested_qty = max(1, (int) ($item['quantity'] ?? 1));
+			$unit_price = (float) get_post_meta($extra_id, '_sb_extra_price', true);
+			$title = get_the_title($extra_id);
+			
+			// Get included quantity for this extra (0 if no package)
+			$included_qty = $included_extras[$extra_id] ?? 0;
+			
+			// Calculate chargeable quantity: requested - included (cannot be negative)
+			$paid_qty = max(0, $requested_qty - $included_qty);
+			$paid_amount = $unit_price * $paid_qty;
+			
+			$total += $paid_amount;
+			
+			// Build breakdown entry - show both included and paid
+			if ($included_qty > 0 && $paid_qty > 0) {
+				// Partially included: show both lines
+				$breakdown[] = [
+					'label' => $title . ' (Package Inclusion)',
+					'amount' => 0
+				];
+				$breakdown[] = [
+					'label' => $title . ' (x' . $paid_qty . ')',
+					'amount' => $paid_amount
+				];
+			} elseif ($included_qty > 0) {
+				// Fully included
+				$breakdown[] = [
+					'label' => $title . ' (Package Inclusion)',
+					'amount' => 0
+				];
+			} elseif ($paid_qty > 0) {
+				// Not included, pay for all
+				$breakdown[] = [
+					'label' => $title . ($paid_qty > 1 ? ' (x' . $paid_qty . ')' : ''),
+					'amount' => $paid_amount
+				];
+			}
+			
+			// Build detail entry for UI
+			$details[] = [
+				'extra_id' => $extra_id,
+				'title' => $title,
+				'total_qty' => $requested_qty,
+				'included_qty' => $included_qty,
+				'paid_qty' => $paid_qty,
+				'unit_price' => $unit_price,
+				'is_locked' => ($requested_qty <= $included_qty)
+			];
+		}
+		
+		// Add package-included extras to breakdown even when not explicitly selected
+		foreach ($included_extras as $extra_id => $included_qty) {
+			// Skip if already processed above (user selected this extra)
+			$already_processed = false;
+			foreach ($extras as $item) {
+				if ((int) $item['extra_id'] === $extra_id) {
+					$already_processed = true;
+					break;
+				}
+			}
+			if ($already_processed) continue;
+			
+			// Get extra details
+			$title = get_the_title($extra_id);
+			$unit_price = (float) get_post_meta($extra_id, '_sb_extra_price', true);
+			
+			// Add to breakdown as fully included
+			$breakdown[] = [
+				'label' => $title . ' (Package Inclusion)',
+				'amount' => 0
+			];
+		}
+		
+		return [
+			'total' => round($total, 2),
+			'breakdown' => $breakdown,
+			'details' => $details
+		];
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────

@@ -115,10 +115,19 @@ final class BookingController extends WP_REST_Controller
 			'extras' => $extras,
 		];
 
-		// ── Guard: space exists ───────────────────────────────────────────────
-		$post = get_post($space_id);
-		if (!$post || $post->post_type !== 'sb_space' || $post->post_status !== 'publish') {
-			return new WP_REST_Response(['message' => 'Invalid space.'], 422);
+		// ── Guard: space or package exists ───────────────────────────────────────────────
+		if ($package_id) {
+			// Package selected - verify package exists
+			$post = get_post($package_id);
+			if (!$post || $post->post_type !== 'sb_package' || $post->post_status !== 'publish') {
+				return new WP_REST_Response(['message' => 'Invalid package.'], 422);
+			}
+		} else {
+			// Space only - verify space exists
+			$post = get_post($space_id);
+			if (!$post || $post->post_type !== 'sb_space' || $post->post_status !== 'publish') {
+				return new WP_REST_Response(['message' => 'Invalid space.'], 422);
+			}
 		}
 
 		// ── Guard: time window still available (check ALL selected spaces) ──

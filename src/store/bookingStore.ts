@@ -55,6 +55,7 @@ interface BookingState {
   bookingStatus: "pending" | "in_review" | "error";
   totalPrice: number;
   priceBreakdown: PriceBreakdownItem[];
+  extrasDetails: import("@/types").ExtraDetail[]; // From backend pricing response
   isConfirmed: boolean;
   hasCartBooking: boolean;
   setStep: (step: BookingStep) => void;
@@ -73,6 +74,8 @@ interface BookingState {
   setIncludedExtras: (extraIds: number[]) => void;
   toggleItem: (item: Space | Package) => void;
   toggleExtra: (extra_id: number, quantity?: number, included?: boolean) => void;
+  incrementExtra: (extra_id: number) => void;
+  decrementExtra: (extra_id: number) => void;
   setCustomerField: (key: string, value: CustomerValue) => void;
   setCustomerFields: (fields: CustomField[]) => void;
   fetchCustomerFields: () => Promise<void>;
@@ -83,7 +86,7 @@ interface BookingState {
     totalPrice: number;
     breakdown: PriceBreakdownItem[];
   }) => void;
-  setPriceBreakdown: (breakdown: PriceBreakdownItem[], total: number) => void;
+  setPriceBreakdown: (breakdown: PriceBreakdownItem[], total: number, extrasDetails?: import("@/types").ExtraDetail[]) => void;
   confirmBooking: () => void;
   checkCartBooking: () => Promise<void>;
   loadBookingStatus: (id: number) => Promise<void>;
@@ -93,6 +96,18 @@ interface BookingState {
   setHasCartBooking: (has: boolean) => void;
   reset: () => void;
   setBookingPolicy: (policy: string) => void;
+  getMergedExtras: () => MergedExtra[];
+}
+
+// NEW: Type for merged extras (UI adapter)
+export interface MergedExtra {
+  extra_id: number;
+  title: string;
+  total_qty: number;
+  included_qty: number;
+  paid_qty: number;
+  unit_price: number;
+  is_locked: boolean;
 }
 
 const DEFAULT_CUSTOMER: CustomerInfo = {};
@@ -117,6 +132,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   bookingStatus: "pending",
   totalPrice: 0,
   priceBreakdown: [],
+  extrasDetails: [],
   isConfirmed: false,
   hasCartBooking: false,
 
@@ -382,6 +398,53 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     const state = get();
     return state.packageCoverage.flatMap((pc) => pc.coveredSpaceIds);
   },
+
+  // NEW: Merged extras selector - computes included/paid split for UI
+  getMergedExtras: (): MergedExtra[] => {
+    const state = get();
+    const { selectedExtras, availableExtras, packageCoverage } = state;
+    
+    if (selectedExtras.length === 0) return [];
+    
+    // Build included_qty map from all selected packages (highest wins)
+    const includedQtyMap = new Map<number, number>();
+    for (const pkg of packageCoverage) {
+      // We need to fetch package extra_ids - for now, use selectedItems
+      const pkgItem = state.selectedItems.find(
+        (i) => i.type === "package" && Number(i.id) === pkg.packageId,
+      );
+      if (pkgItem && "extra_ids" in pkgItem && Array.isArray(pkgItem.extra_ids)) {
+        for (const extraId of pkgItem.extra_ids) {
+          const current = includedQtyMap.get(extraId) ?? 0;
+          // Each package includes 1 of each extra by default
+          includedQtyMap.set(extraId, Math.max(current, 1));
+        }
+      }
+    }
+    
+    // Build merged extras array
+    const merged: MergedExtra[] = [];
+    const extraMap = new Map(availableExtras.map((e) => [e.id, e]));
+    
+    for (const sel of selectedExtras) {
+      const extraInfo = extraMap.get(sel.extra_id);
+      const total_qty = sel.quantity;
+      const included_qty = includedQtyMap.get(sel.extra_id) ?? (sel.included ? 1 : 0);
+      const paid_qty = Math.max(0, total_qty - included_qty);
+      
+      merged.push({
+        extra_id: sel.extra_id,
+        title: extraInfo?.title ?? `Extra ${sel.extra_id}`,
+        total_qty,
+        included_qty,
+        paid_qty,
+        unit_price: extraInfo?.price ?? 0,
+        is_locked: total_qty <= included_qty,
+      });
+    }
+    
+    return merged;
+  },
   getLockedResourceIds: () => {
     const state = get();
     console.log("getLockedResourceIds CALLED");
@@ -488,6 +551,67 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
       set({ selectedExtras: newExtras });
     }
     console.groupEnd();
+  },
+
+  // Increment extra quantity by 1
+  incrementExtra: (extra_id: number) => {
+    const current = get().selectedExtras;
+    const exists = current.find((e) => e.extra_id === extra_id);
+    if (exists) {
+      const newExtras = current.map((e) =>
+        e.extra_id === extra_id ? { ...e, quantity: e.quantity + 1 } : e
+      );
+      set({ selectedExtras: newExtras });
+    } else {
+      // Add new with quantity 1
+      set({ selectedExtras: [...current, { extra_id, quantity: 1, included: false }] });
+    }
+  },
+
+  // Decrement extra quantity by 1 (respects included_qty minimum)
+  decrementExtra: (extra_id: number) => {
+    const current = get().selectedExtras;
+    const exists = current.find((e) => e.extra_id === extra_id);
+    if (!exists) return;
+
+    // Get included_qty for this extra from packageCoverage
+    const { packageCoverage, availableExtras, selectedItems } = get();
+    let includedQty = 0;
+    
+    // Find included_qty from packages
+    for (const pkg of packageCoverage) {
+      const pkgItem = selectedItems.find(
+        (i) => i.type === "package" && Number(i.id) === pkg.packageId
+      );
+      if (pkgItem && "extra_ids" in pkgItem && Array.isArray(pkgItem.extra_ids)) {
+        if (pkgItem.extra_ids.includes(extra_id)) {
+          includedQty = Math.max(includedQty, 1);
+        }
+      }
+    }
+
+    // Can't go below included_qty
+    if (exists.quantity <= includedQty) {
+      // If it's included, reduce to included_qty (which is 1), otherwise stay at minimum
+      if (exists.included) {
+        const newExtras = current.map((e) =>
+          e.extra_id === extra_id ? { ...e, quantity: includedQty || 1, included: true } : e
+        );
+        set({ selectedExtras: newExtras });
+      }
+      return;
+    }
+
+    // If quantity would go to 0, remove entirely
+    if (exists.quantity === 1) {
+      const newExtras = current.filter((e) => e.extra_id !== extra_id);
+      set({ selectedExtras: newExtras });
+    } else {
+      const newExtras = current.map((e) =>
+        e.extra_id === extra_id ? { ...e, quantity: e.quantity - 1 } : e
+      );
+      set({ selectedExtras: newExtras });
+    }
   },
 
   // Set included extras from package (auto-added)
@@ -612,13 +736,14 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     breakdown: PriceBreakdownItem[];
   }) => set({ checkoutUrl, bookingId, totalPrice, priceBreakdown: breakdown }),
 
-  setPriceBreakdown: (breakdown: PriceBreakdownItem[], total: number) => {
+  setPriceBreakdown: (breakdown: PriceBreakdownItem[], total: number, extrasDetails: import("@/types").ExtraDetail[] = []) => {
     console.group("💰 STORE setPriceBreakdown");
     console.log("Breakdown:", breakdown);
     console.log("Total:", total);
+    console.log("ExtrasDetails:", extrasDetails);
     console.groupEnd();
     // Backend provides detailed labels, no enrichment needed
-    set({ priceBreakdown: breakdown, totalPrice: total });
+    set({ priceBreakdown: breakdown, totalPrice: total, extrasDetails });
   },
 
   // ── Step 6 ───────────────────────────────────────────────────────────────

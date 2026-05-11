@@ -129,6 +129,20 @@ export interface PricingResponse {
   breakdown: PriceBreakdownItem[];
   items?: PricingItemDetail[];
   extras_breakdown?: PriceBreakdownItem[];
+  extras_details?: ExtraDetail[];
+}
+
+/**
+ * Extra detail from pricing calculation (includes included/paid split)
+ */
+export interface ExtraDetail {
+  extra_id: number;
+  title: string;
+  total_qty: number;
+  included_qty: number;
+  paid_qty: number;
+  unit_price: number;
+  is_locked: boolean;
 }
 
 export interface BookingCreateResponse {

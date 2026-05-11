@@ -47,19 +47,33 @@ final class PricingController extends WP_REST_Controller
 		$extras = (array) ($request->get_param('extras') ?? []);
 
 		error_log('SB_DEBUG_PRICING: FULL REQUEST PARAMS: ' . json_encode($request->get_params()));
-		error_log('SB_DEBUG_PRICING: Parsed item_ids=' . json_encode($item_ids) . ", space_id=$space_id, date=$date, time=$start_time-$end_time");
+		error_log('SB_DEBUG_PRICING: Parsed item_ids=' . json_encode($item_ids) . ", space_id=$space_id, package_id=$package_id, date=$date, time=$start_time-$end_time");
 		error_log('SB_DEBUG_PRICING: Extras count: ' . count($extras));
 
-		// Guard: space exists
-		$post = get_post($space_id);
-		if (!$post) {
-			error_log("SB_DEBUG_PRICING: No post for space $space_id");
-			return new WP_REST_Response(['message' => 'Invalid space ID.'], 422);
-		}
-		error_log('SB_DEBUG_PRICING: space_id=' . $space_id . ' post_type=' . $post->post_type . ', status=' . $post->post_status);
-		if ($post->post_type !== 'sb_space' || $post->post_status !== 'publish') {
-			error_log("SB_DEBUG_PRICING: Invalid space $space_id type=" . $post->post_type . ' status=' . $post->post_status);
-			return new WP_REST_Response(['message' => 'Invalid space.'], 422);
+		// Guard: when NO package_id, space must exist and be valid
+		if (!$package_id) {
+			$post = get_post($space_id);
+			if (!$post) {
+				error_log("SB_DEBUG_PRICING: No post for space $space_id");
+				return new WP_REST_Response(['message' => 'Invalid space ID.'], 422);
+			}
+			error_log('SB_DEBUG_PRICING: space_id=' . $space_id . ' post_type=' . $post->post_type . ', status=' . $post->post_status);
+			if ($post->post_type !== 'sb_space' || $post->post_status !== 'publish') {
+				error_log("SB_DEBUG_PRICING: Invalid space $space_id type=" . $post->post_type . ' status=' . $post->post_status);
+				return new WP_REST_Response(['message' => 'Invalid space.'], 422);
+			}
+		} else {
+			// Package selected: verify package exists
+			$post = get_post($package_id);
+			if (!$post || $post->post_type !== 'sb_package' || $post->post_status !== 'publish') {
+				error_log("SB_DEBUG_PRICING: Invalid package_id $package_id");
+				return new WP_REST_Response(['message' => 'Invalid package.'], 422);
+			}
+			// Use package's primary space as space_id for availability checks
+			$pkg_space_id = (int) get_post_meta($package_id, '_sb_package_space_id', true);
+			if ($pkg_space_id) {
+				$space_id = $pkg_space_id;
+			}
 		}
 
 		$price = $this->pricing->calculate(
