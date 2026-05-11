@@ -93,7 +93,7 @@ export function Step7Confirmation() {
         <p>Loading booking details...</p>
       </div>
     );
-  } 
+  }
 
   if (error || !bookingData) {
     return (
@@ -222,15 +222,10 @@ export function Step7Confirmation() {
             <tr>
               <th>Extras</th>
               <td>
-                {(bookingData._extras_details &&
-                  bookingData._extras_details.length > 0) ||
-                (bookingData.extras as any[])?.length > 0 ? (
+                {bookingData._extras_details &&
+                bookingData._extras_details.length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {(
-                      bookingData._extras_details ||
-                      bookingData.extras ||
-                      []
-                    ).map((e: any) => (
+                    {bookingData._extras_details.map((e: any) => (
                       <li key={e.extra_id}>
                         {e.extra_name || e.title || getExtraTitle(e.extra_id)}
                         {e.quantity > 1 && ` × ${e.quantity}`}

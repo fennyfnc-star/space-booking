@@ -234,24 +234,6 @@ final class BookingController extends WP_REST_Controller
 			}
 		}
 
-		// Also link extras using the new link_extra method
-		if (!empty($extras)) {
-			foreach ($extras as $extra) {
-				try {
-					$this->repo->link_extra(
-						$booking_id,
-						(int) $extra['extra_id'],
-						$start_time,
-						$end_time,
-						(int) ($extra['quantity'] ?? 1),
-						(float) ($extra['price'] ?? 0.0)
-					);
-				} catch (\RuntimeException $e) {
-					error_log('Failed to link extra for booking #' . $booking_id . ' extra ' . $extra['extra_id'] . ': ' . $e->getMessage());
-				}
-			}
-		}
-
 		// If booking a package, link it using the new link_package method
 		if ($package_id) {
 			try {
