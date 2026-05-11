@@ -127,11 +127,13 @@ final class AvailabilityService
 		foreach ($space_ids as $space_id) {
 			$slots_result = $this->get_slots($space_id, $date, $step_mins);
 			$raw_slots = $slots_result['slots'];
-			$available = array_filter($raw_slots, fn($s) => !empty($s['available']));
 
-			$per_space_slots[$space_id] = array_values($available);
+			// Store ALL slots (not just available) for proper intersection
+			$per_space_slots[$space_id] = array_values($raw_slots);
+
+			$available = array_filter($raw_slots, fn($s) => !empty($s['available']));
 			$available_counts[$space_id] = count($available);
-			error_log("AVAIL INTERSECTION: Space $space_id has " . count($available) . ' available slots');
+			error_log("AVAIL INTERSECTION: Space $space_id has " . count($available) . ' available slots out of ' . count($raw_slots));
 		}
 
 		$blockers = [];
@@ -296,14 +298,14 @@ final class AvailabilityService
 		global $wpdb;
 
 		$global_resources = $wpdb->get_col("
-			SELECT p.ID 
-			FROM {$wpdb->posts} p
-			JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
-			WHERE p.post_type = 'sb_extra'
-			AND p.post_status = 'publish'
-			AND pm.meta_key = '_sb_is_global_resource'
-			AND pm.meta_value = '1'
-		");
+            SELECT p.ID 
+            FROM {$wpdb->posts} p
+            JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+            WHERE p.post_type = 'sb_extra'
+            AND p.post_status = 'publish'
+            AND pm.meta_key = '_sb_is_global_resource'
+            AND pm.meta_value = '1'
+        ");
 
 		if (empty($global_resources)) {
 			return [];
@@ -311,14 +313,14 @@ final class AvailabilityService
 
 		$placeholders = implode(',', array_fill(0, count($global_resources), '%d'));
 		$results = $wpdb->get_results($wpdb->prepare("
-			SELECT DISTINCT space_id 
-			FROM {$wpdb->prefix}sb_bookings 
-			WHERE space_id IN ({$placeholders})
-			AND booking_date = %s 
-			AND status IN ('confirmed', 'in_review')
-			AND start_time < %s 
-			AND end_time > %s
-		", array_merge($global_resources, [$date, $end_time, $start_time])), ARRAY_A);
+            SELECT DISTINCT space_id 
+            FROM {$wpdb->prefix}sb_bookings 
+            WHERE space_id IN ({$placeholders})
+            AND booking_date = %s 
+            AND status IN ('confirmed', 'in_review')
+            AND start_time < %s 
+            AND end_time > %s
+        ", array_merge($global_resources, [$date, $end_time, $start_time])), ARRAY_A);
 
 		return $results ?: [];
 	}

@@ -77,14 +77,19 @@ trait HasDynamicSlots
 
     /**
      * Generate dynamic slots for a SINGLE space (internal helper).
+     * FIXED: Added pending booking detection (like HasFixedSlots).
      */
     protected function generate_dynamic_slots_single(int $space_id, string $date, int $step_mins = 60): array
     {
         $repo = $this->getRepository();
 
-        // Get blocking for THIS space only
+        // Get blocking for confirmed/in_review/paid bookings
         $blocked = $repo->get_blocking_intervals([$space_id], $date);
         error_log('SB_DEBUG: generate_dynamic_slots_single blocking for space ' . $space_id . ': ' . count($blocked));
+
+        // NEW: Get pending (non-expired) bookings to detect slots being booked NOW
+        $pending_intervals = $repo->get_pending_intervals_for_spaces([$space_id], $date);
+        error_log('SB_DEBUG: generate_dynamic_slots_single pending for space ' . $space_id . ': ' . count($pending_intervals));
 
         [$open, $close] = $this->resolve_effective_hours($space_id, $date);
         error_log("AVAIL DEBUG: dynamic effective open=$open, close=$close");
@@ -108,17 +113,23 @@ trait HasDynamicSlots
             ];
         }, $blocked);
 
+        // Use a non-static callback to access $this->overlaps()
         $available_count = 0;
-        $final_slots = array_map(static function (array $slot) use ($inflated_intervals, &$available_count): array {
-            $is_available = !HasOverlapDetection::overlaps($slot['start'], $slot['end'], $inflated_intervals);
+        $final_slots = [];
+        foreach ($slots as $slot) {
+            // Check if slot overlaps with any pending booking first
+            $has_pending = $this->overlaps($slot['start'], $slot['end'], $pending_intervals);
+
+            // Slot is available if not blocked by confirmed/in_review/paid AND not pending
+            $is_available = !$this->overlaps($slot['start'], $slot['end'], $inflated_intervals) && !$has_pending;
 
             if ($is_available) {
                 $available_count++;
             }
             $slot['available'] = $is_available;
-            $slot['has_pending'] = false;
-            return $slot;
-        }, $slots);
+            $slot['has_pending'] = $has_pending;  // FIXED: Now properly detecting pending
+            $final_slots[] = $slot;
+        }
 
         error_log("AVAIL DEBUG: Final dynamic available slots: $available_count / " . count($slots));
 
@@ -160,7 +171,7 @@ trait HasDynamicSlots
      */
     public function resolve_hours(int $space_id, string $date): array
     {
-        $day_of_week = (int) (new \DateTime($date))->format('w');  // 0=Sun ... 6=Sat
+        $day_of_week = (int) (new \DateTime($date))->format('w');  // 0=Sun … 6=Sat
         error_log("AVAIL DEBUG: resolve_hours space_id=$space_id date=$date day=$day_of_week");
 
         // Check per-space day overrides stored in post meta
