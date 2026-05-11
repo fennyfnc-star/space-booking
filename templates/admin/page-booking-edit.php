@@ -2,6 +2,23 @@
 /** Single Booking Edit Page */
 defined('ABSPATH') || exit;
 
+/**
+ * Convert 24-hour time to 12-hour format with AM/PM
+ */
+function sb_format_time_12hour(string $time): string
+{
+    if (empty($time) || strlen($time) < 5)
+        return $time;
+    [$hourStr, $minuteStr] = explode(':', substr($time, 0, 5));
+    $hour = (int) $hourStr;
+    $minutes = $minuteStr;
+    $period = $hour >= 12 ? 'PM' : 'AM';
+    $hour = $hour % 12;
+    if ($hour === 0)
+        $hour = 12;
+    return sprintf('%d:%s %s', $hour, $minutes, $period);
+}
+
 // Get booking ID from URL
 $booking_id = absint($_GET['edit'] ?? 0);
 
@@ -224,7 +241,7 @@ $status_color = [
             <div><strong>Space:</strong> <?php echo esc_html($booking['space_title']); ?></div>
             <div><strong>Date:</strong> <?php echo esc_html($booking['booking_date']); ?></div>
             <div><strong>Time:</strong>
-                <?php echo esc_html(substr($booking['start_time'], 0, 5) . ' - ' . substr($booking['end_time'], 0, 5)); ?>
+                <?php echo esc_html(sb_format_time_12hour($booking['start_time']) . ' - ' . sb_format_time_12hour($booking['end_time'])); ?>
             </div>
             <div><strong>Duration:</strong> <?php echo esc_html($booking['duration_hours']); ?>h</div>
             <div><strong>Customer:</strong> <?php echo esc_html($booking['customer_name']); ?></div>

@@ -143,11 +143,22 @@ export function Step6Payment() {
     checkCart();
   }, [checkoutUrl, hasCartBooking, checkCartBooking]);
 
+  // Format time to 12-hour format
+  const formatTimeTo12Hour = (timeStr: string): string => {
+    const [hourStr, minuteStr] = timeStr.split(":");
+    let hour = parseInt(hourStr, 10);
+    const minutes = minuteStr;
+    const period = hour >= 12 ? "PM" : "AM";
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${hour}:${minutes} ${period}`;
+  };
+
   return (
     <div className="sb-step sb-step-6">
       <h2 className="sb-step__title">Complete Booking</h2>
       <div className="sb-checkout-summary">
-        <h3>Final Review</h3> 
+        <h3>Final Review</h3>
 
         <div className="sb-summary-grid">
           <div className="sb-summary-row">
@@ -170,7 +181,8 @@ export function Step6Payment() {
           <div className="sb-summary-row">
             <span>Time</span>
             <span>
-              {selectedStartTime} – {selectedEndTime}
+              {formatTimeTo12Hour(selectedStartTime)} –{" "}
+              {formatTimeTo12Hour(selectedEndTime)}
             </span>
           </div>
           {/* <div className="sb-summary-row">

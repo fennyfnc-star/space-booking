@@ -9,7 +9,8 @@ interface SelectedItem {
 
 interface ExtraDetail {
   extra_id: number;
-  extra_name: string;
+  extra_name?: string;
+  title?: string;
   quantity: number;
   unit_price: number;
 }
@@ -225,7 +226,7 @@ export function Step7Confirmation() {
                 {bookingData._extras_details &&
                 bookingData._extras_details.length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {bookingData._extras_details.map((e: any) => (
+                    {bookingData._extras_details.map((e: ExtraDetail) => (
                       <li key={e.extra_id}>
                         {e.extra_name || e.title || getExtraTitle(e.extra_id)}
                         {e.quantity > 1 && ` × ${e.quantity}`}

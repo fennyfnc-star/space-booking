@@ -127,6 +127,17 @@ export function Step5Checkout() {
     }
   };
 
+  // Format time to 12-hour format
+  const formatTimeTo12Hour = (timeStr: string): string => {
+    const [hourStr, minuteStr] = timeStr.split(":");
+    let hour = parseInt(hourStr, 10);
+    const minutes = minuteStr;
+    const period = hour >= 12 ? "PM" : "AM";
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${hour}:${minutes} ${period}`;
+  };
+
   return (
     <div className="sb-step sb-step-5">
       <h2 className="sb-step__title">Review & Checkout</h2>
@@ -154,7 +165,8 @@ export function Step5Checkout() {
           <div className="sb-summary-row">
             <span>Time</span>
             <span>
-              {selectedStartTime} – {selectedEndTime}
+              {formatTimeTo12Hour(selectedStartTime)} –{" "}
+              {formatTimeTo12Hour(selectedEndTime)}
             </span>
           </div>
           <div className="sb-summary-row">

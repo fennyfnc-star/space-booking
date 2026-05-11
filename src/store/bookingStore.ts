@@ -15,12 +15,20 @@ import type {
 
 import { checkCartHasBooking, fetchResourceMap } from "../utils/api";
 
+// New: Track which spaces are covered by selected packages
+interface PackageCoverage {
+  packageId: number;
+  packageTitle: string;
+  coveredSpaceIds: number[];
+}
+
 interface BookingState {
   bookingPolicy: string;
   currentStep: BookingStep;
   selectedItems: SelectionItem[];
   lockedResourceIds: number[]; // Cached union footprint for UI
   resourceMap: Record<number, ResourceFootprint> | null;
+  packageCoverage: PackageCoverage[]; // NEW: Track packages and their covered spaces
   selectedDate: string;
   selectedStartTime: string;
   selectedEndTime: string;
@@ -65,6 +73,7 @@ interface BookingState {
   loadBookingStatus: (id: number) => Promise<void>;
   setBookingStatus: (status: "pending" | "in_review" | "error") => void;
   getPrimarySpaceId: () => number | null;
+  getCoveredSpaceIds: () => number[];
   setHasCartBooking: (has: boolean) => void;
   reset: () => void;
   setBookingPolicy: (policy: string) => void;
@@ -79,6 +88,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedItems: [],
   lockedResourceIds: [],
   resourceMap: null,
+  packageCoverage: [], // NEW: Track packages and their covered spaces
   selectedDate: "",
   selectedStartTime: "",
   selectedEndTime: "",
@@ -210,11 +220,27 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       (i) => Number(i.id) === targetId,
     );
 
+// Check if this is a package (has space_ids)
+    const isPackage = "space_ids" in item && 
+      Array.isArray(item.space_ids) && 
+      item.space_ids.length > 0;
+    const packageSpaceIds = isPackage ? item.space_ids! : [];
+    const itemTitle = item.title || "Item";
+
     if (isSelected) {
-      // 1. IMMUTABLE REMOVAL
+      // REMOVAL - remove from both selectedItems and packageCoverage
       const updatedItems = state.selectedItems.filter(
         (i) => Number(i.id) !== targetId,
       );
+      
+      // Also remove from packageCoverage if it was a package
+      let newPackageCoverage = state.packageCoverage;
+      if (isPackage) {
+        newPackageCoverage = state.packageCoverage.filter(
+          (pc) => pc.packageId !== targetId,
+        );
+      }
+      
       const computeLocked = (items: SelectionItem[]): number[] => {
         const map = state.resourceMap;
         if (!map) return [];
@@ -226,16 +252,74 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         return Array.from(locked);
       };
       const newLocked = computeLocked(updatedItems);
-      set({ selectedItems: updatedItems, lockedResourceIds: newLocked });
+      set({ 
+        selectedItems: updatedItems, 
+        lockedResourceIds: newLocked,
+        packageCoverage: newPackageCoverage 
+      });
 
       console.log(`Unselected: ${targetId}. Re-computing locks...`);
-    } else {
-      // 3. VALIDATED ADDITION
+} else {
+      // ADDITION - with mutual exclusivity checks
       if (!state.resourceMap) {
         alert("Resource map loading...");
         return;
       }
       const map = state.resourceMap;
+      
+      // Check 1: If adding a SPACE, check if it's covered by any selected package
+      if (!isPackage) {
+        const coveredByPackage = state.packageCoverage.find((pc) =>
+          pc.coveredSpaceIds.includes(targetId)
+        );
+        if (coveredByPackage) {
+          console.warn(
+            `Cannot select this space. It is already included in package "${coveredByPackage.packageTitle}".`,
+          );
+          alert(
+            `Cannot select this space. It is already included in package "${coveredByPackage.packageTitle}". Please unselect the package first if you want this space.`
+          );
+          return;
+        }
+      }
+      
+      // Check 2: If adding a PACKAGE, check if any of its spaces are already selected
+      if (isPackage && packageSpaceIds.length > 0) {
+        const alreadySelectedSpaces = state.selectedItems.filter((sel) => 
+          packageSpaceIds.includes(Number(sel.id))
+        );
+        if (alreadySelectedSpaces.length > 0) {
+          const spaceNames = alreadySelectedSpaces.map((s) => s.title).join(", ");
+          console.warn(
+            `Cannot select this package. The following spaces are already selected: ${spaceNames}.`,
+          );
+          alert(
+            `Cannot select this package. The following spaces are already selected: ${spaceNames}. Please unselect the space(s) first if you want this package.`
+          );
+          return;
+        }
+        
+        // Check 3: Check for overlapping packages (packages that share any space)
+        const otherPackages = state.selectedItems.filter((sel) => {
+          if (sel.type !== "package") return false;
+          const otherPkg = sel as Package;
+          return "space_ids" in otherPkg && 
+            Array.isArray(otherPkg.space_ids) && 
+            otherPkg.space_ids.some((sid) => packageSpaceIds.includes(sid));
+        });
+        if (otherPackages.length > 0) {
+          const pkgNames = otherPackages.map((p) => p.title).join(", ");
+          console.warn(
+            `This package overlaps with already selected package: ${pkgNames}.`,
+          );
+          alert(
+            `This package overlaps with an already selected package: ${pkgNames}. Please unselect the existing package first.`
+          );
+          return;
+        }
+      }
+      
+      // Check 4: Physical resource overlap check (existing)
       const itemFootprint = map[targetId]?.footprint ?? [targetId];
       const hasOverlap = itemFootprint.some((id) =>
         state.lockedResourceIds.includes(id),
@@ -247,12 +331,28 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         alert("Conflicts with current selection: overlaps physical resources.");
         return;
       }
+      
+      // Add the item
       const typedItem: SelectionItem = (
-        "space_ids" in item
+        isPackage
           ? { ...item, type: "package" as const }
           : { ...item, type: "space" as const }
       ) as SelectionItem;
       const updatedItems = [...state.selectedItems, typedItem];
+      
+      // Track package coverage
+      let newPackageCoverage = state.packageCoverage;
+      if (isPackage && packageSpaceIds.length > 0) {
+        newPackageCoverage = [
+          ...state.packageCoverage,
+          {
+            packageId: targetId,
+            packageTitle: itemTitle,
+            coveredSpaceIds: packageSpaceIds,
+          },
+        ];
+      }
+      
       const computeLocked = (items: SelectionItem[]): number[] => {
         const locked = new Set<number>();
         for (const it of items) {
@@ -262,12 +362,16 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         return Array.from(locked);
       };
       const newLocked = computeLocked(updatedItems);
-      set({ selectedItems: updatedItems, lockedResourceIds: newLocked });
+      set({ 
+        selectedItems: updatedItems, 
+        lockedResourceIds: newLocked,
+        packageCoverage: newPackageCoverage 
+      });
 
       console.log(`Selected: ${targetId}. Updating locks...`);
     }
   },
-  clearItems: () => set({ selectedItems: [], lockedResourceIds: [] }),
+clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverage: [] }),
   getPrimarySpaceId: () => {
     const state = get();
     if (state.selectedItems.length === 0) return null;
@@ -284,6 +388,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       }
     }
     return Number(item.id); // Fallback
+  },
+  getCoveredSpaceIds: () => {
+    const state = get();
+    return state.packageCoverage.flatMap((pc) => pc.coveredSpaceIds);
   },
   getLockedResourceIds: () => {
     const state = get();
@@ -547,13 +655,14 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setBookingStatus: (status: "pending" | "in_review" | "error") =>
     set({ bookingStatus: status }),
 
-  reset: () => {
+reset: () => {
     set({
       currentStep: 1,
       bookingPolicy: "",
       selectedItems: [],
       lockedResourceIds: [],
       resourceMap: null,
+      packageCoverage: [],
       selectedDate: "",
       selectedStartTime: "",
       selectedEndTime: "",

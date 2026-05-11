@@ -17,6 +17,7 @@ export function Step1Selection() {
   const {
     selectedItems,
     lockedResourceIds,
+    packageCoverage,
     toggleItem,
     loadResourceMap,
     nextStep,
@@ -67,6 +68,26 @@ export function Step1Selection() {
       return selectedItems.some((i) => Number(i.id) === Number(item.id));
     },
     [selectedItems],
+  );
+
+  // Check if a space is covered by a selected package
+  const isCoveredByPackage = useCallback(
+    (item: Space | Package) => {
+      return packageCoverage.some((pc) =>
+        pc.coveredSpaceIds.includes(Number(item.id)),
+      );
+    },
+    [packageCoverage],
+  );
+
+  // Get the package that covers a given space
+  const getCoveringPackage = useCallback(
+    (spaceId: number) => {
+      return packageCoverage.find((pc) =>
+        pc.coveredSpaceIds.includes(spaceId),
+      );
+    },
+    [packageCoverage],
   );
 
   const canProceed = selectedItems.length > 0 && !hasCartBooking;
@@ -178,6 +199,15 @@ export function Step1Selection() {
             aria-label="Locked by package selection"
           >
             🔒
+          </span>
+        )}
+        {/* Show "Included in package" badge for spaces covered by selected packages */}
+        {type === "space" && isCoveredByPackage(item) && !selected && (
+          <span
+            className="sb-card__badge sb-card__badge--package"
+            aria-label="Included in package"
+          >
+            📦 Included in "{getCoveringPackage(Number(item.id))?.packageTitle}"
           </span>
         )}
       </div>

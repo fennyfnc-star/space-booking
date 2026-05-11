@@ -6,6 +6,23 @@
  */
 defined('ABSPATH') || exit;
 
+/**
+ * Convert 24-hour time to 12-hour format with AM/PM
+ */
+function sb_format_time_12hour(string $time): string
+{
+    if (empty($time) || strlen($time) < 5)
+        return $time;
+    [$hourStr, $minuteStr] = explode(':', substr($time, 0, 5));
+    $hour = (int) $hourStr;
+    $minutes = $minuteStr;
+    $period = $hour >= 12 ? 'PM' : 'AM';
+    $hour = $hour % 12;
+    if ($hour === 0)
+        $hour = 12;
+    return sprintf('%d:%s %s', $hour, $minutes, $period);
+}
+
 // ── Filters Form ─────────────────────────────────────────────────────────
 ?>
 <style>
@@ -237,7 +254,7 @@ defined('ABSPATH') || exit;
                         echo '<div class="sb-day-header">' . esc_html($day_data['day']) . '</div>';
                         if (!empty($day_data['bookings'])) {
                             foreach ($day_data['bookings'] as $b) {
-                                $time = substr($b['start_time'], 0, 5) . '-' . substr($b['end_time'], 0, 5);
+                                $time = sb_format_time_12hour($b['start_time']) . ' - ' . sb_format_time_12hour($b['end_time']);
                                 $edit_url = admin_url('admin.php?page=space-booking-bookings&edit=' . $b['id']);
                                 echo '<a href="' . esc_url($edit_url) . '" class="sb-booking" style="text-decoration:none; color:inherit; display:block;">';
                                 echo esc_html($time . ' - ' . $b['customer_name']);
@@ -460,4 +477,4 @@ jQuery(document).ready(function($) {
 </style>
 
 <?php
-    ?>
+?>
