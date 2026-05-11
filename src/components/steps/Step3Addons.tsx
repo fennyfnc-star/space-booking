@@ -103,7 +103,8 @@ export function Step3Addons() {
       return;
     }
 
-    // Auto-add package-included extras to selectedExtras (only if not already selected)
+    // Note: Don't auto-select package extras - backend handles included extras in breakdown
+    // Just log for debugging
     if (pkgItem) {
       const pkg = pkgItem as Package;
       const includedExtraIds: number[] = [];
@@ -112,16 +113,8 @@ export function Step3Addons() {
       } else if (pkg.extra_id) {
         includedExtraIds.push(pkg.extra_id);
       }
-      // Add included extras only if not already in selectedExtras
       if (includedExtraIds.length > 0) {
-        const alreadySelected = selectedExtras.map((e) => e.extra_id);
-        const toAdd = includedExtraIds.filter((id) => !alreadySelected.includes(id));
-        if (toAdd.length > 0) {
-          console.log("📦 Auto-selecting package extras:", toAdd);
-          for (const extraId of toAdd) {
-            toggleExtra(extraId, 1, true); // quantity=1, included=true
-          }
-        }
+        console.log("📦 Package includes extras (backend handles breakdown):", includedExtraIds);
       }
     }
 

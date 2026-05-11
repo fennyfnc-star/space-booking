@@ -433,28 +433,8 @@ final class PricingService
 			];
 		}
 		
-		// Add package-included extras to breakdown even when not explicitly selected
-		foreach ($included_extras as $extra_id => $included_qty) {
-			// Skip if already processed above (user selected this extra)
-			$already_processed = false;
-			foreach ($extras as $item) {
-				if ((int) $item['extra_id'] === $extra_id) {
-					$already_processed = true;
-					break;
-				}
-			}
-			if ($already_processed) continue;
-			
-			// Get extra details
-			$title = get_the_title($extra_id);
-			$unit_price = (float) get_post_meta($extra_id, '_sb_extra_price', true);
-			
-			// Add to breakdown as fully included
-			$breakdown[] = [
-				'label' => $title . ' (Package Inclusion)',
-				'amount' => 0
-			];
-		}
+		// Note: Package-included extras are already added in item_breakdown when processing package item
+		// No need to add them again here
 		
 		return [
 			'total' => round($total, 2),
