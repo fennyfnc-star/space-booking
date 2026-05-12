@@ -175,6 +175,17 @@ export function Step7Confirmation() {
                     `Space #${bookingData.space_id}`}
               </td>
             </tr> */}
+            <tr>
+              <th>Space</th>
+              <td>
+                {bookingData._space_titles && bookingData._space_titles.length > 0
+                  ? bookingData._space_titles.join(", ")
+                  : bookingData._space_title ||
+                    (bookingData._selected_items?.length === 1
+                      ? bookingData._selected_items[0].title
+                      : `Space #${bookingData.space_id}`)}
+              </td>
+            </tr>
             {bookingData._selected_items &&
               bookingData._selected_items.length > 1 && (
                 <tr>
