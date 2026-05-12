@@ -83,14 +83,21 @@ final class PricingService
 					'amount' => $package_price,
 				];
 				
-				// Add package's primary space as Package Inclusion
-				$pkg_space_id = (int) get_post_meta($item_id, '_sb_package_space_id', true);
-				if ($pkg_space_id) {
-					$space_title = get_the_title($pkg_space_id);
-					$item_breakdown[] = [
-						'label' => $space_title . ' (Package Inclusion)',
-						'amount' => 0
-					];
+				// Add ALL package's included spaces as Package Inclusions
+				$pkg_space_ids = get_post_meta($item_id, '_sb_package_space_ids', true);
+				if (!is_array($pkg_space_ids)) {
+					// For backwards compatibility, fall back to old single field
+					$single_space_id = get_post_meta($item_id, '_sb_package_space_id', true);
+					$pkg_space_ids = $single_space_id ? [(int)$single_space_id] : [];
+				}
+				foreach ($pkg_space_ids as $pkg_space_id) {
+					if ($pkg_space_id) {
+						$space_title = get_the_title($pkg_space_id);
+						$item_breakdown[] = [
+							'label' => $space_title . ' (Package Inclusion)',
+							'amount' => 0
+						];
+					}
 				}
 				
 				// Add package's included extras as Package Inclusion

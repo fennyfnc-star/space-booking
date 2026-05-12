@@ -161,18 +161,34 @@ export function Step3Addons() {
 
     console.group("💰 STEP3 fetchPricing");
     
-    // Build item_ids - include package ID when package is selected so backend uses flat price
+    // Build item_ids - include package ID if selected, but also any additional spaces not in the package
     const itemIds: number[] = [];
+    
+    // Add package ID if it exists
     if (packageId) {
-      // Package selected: use package ID so backend applies flat price
-      itemIds.push(Number(packageId));
-    } else {
-      // Space-only: use space IDs
-      for (const item of selectedItems) {
+        itemIds.push(Number(packageId));
+    }
+    
+    // Add any additional spaces that were selected separately (not part of the package)
+    // This allows users to select a package plus additional spaces
+    for (const item of selectedItems) {
         if (item.type === "space") {
-          itemIds.push(Number(item.id));
+            // Only add space if it's not already part of the package
+            // If no package is selected, add all spaces
+            if (!packageId) {
+                itemIds.push(Number(item.id));
+            } else {
+                // If package exists, only add spaces that are NOT part of the package
+                // Determine which spaces are in the package
+                const pkgItem = selectedItems.find(i => i.type === "package") as Package | undefined;
+                const packageSpaceIds = pkgItem?.space_ids || [];
+                
+                // Add the space if it's not in the package
+                if (!packageSpaceIds.includes(Number(item.id))) {
+                    itemIds.push(Number(item.id));
+                }
+            }
         }
-      }
     }
     
     const pricingParams = {
@@ -215,13 +231,32 @@ export function Step3Addons() {
 
   // Get merged extras for UI display
   const mergedExtras = getMergedExtras();
-  
+
   // Helper to get package title for badge
   const getPackageTitle = () => {
     if (packageCoverage.length === 0) return null;
     return packageCoverage[0].packageTitle;
   };
   const packageTitle = getPackageTitle();
+
+  // Helper to get space name for breakdown enrichment
+  const getSpaceName = (): string => {
+    const spaceItem = selectedItems.find((i) => i.type === "space");
+    if (spaceItem) return spaceItem.title;
+    if (pkgItem && pkgItem.space_name) return pkgItem.space_name;
+    return "";
+  };
+  const spaceName = getSpaceName();
+
+  // Enrich breakdown label to include space name when package selected
+  const enrichBreakdownLabel = (label: string): string => {
+    if (!pkgItem || !spaceName) return label;
+    // If label already contains the package title, add space name before it
+    if (label.includes(packageTitle || "")) {
+      return `${spaceName} - ${label}`;
+    }
+    return label;
+  };
 
   // Check if extra is included in package
   const isIncludedInPackage = (extraId: number): boolean => {
@@ -447,7 +482,7 @@ export function Step3Addons() {
           <ul className="sb-breakdown">
             {preview.breakdown.map((item, i) => (
               <li key={i} className="sb-breakdown__item">
-                <span>{item.label}</span>
+                <span>{enrichBreakdownLabel(item.label)}</span>
                 <span>
                   {window.sbConfig.symbol}
                   {item.amount.toFixed(2)}

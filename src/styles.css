@@ -306,6 +306,27 @@
   background: #ef4444;
 }
 
+/* Package inclusions styling */
+.sb-package-inclusions {
+  margin-top: 0.5rem; /* ~mt-2 */
+  font-size: 0.875rem; /* ~text-sm */
+  color: #6b7280; /* ~text-gray-600 */
+}
+
+.sb-package-inclusions .sb-package-spaces,
+.sb-package-inclusions .sb-package-extras {
+  font-size: 0.8rem; /* Even smaller for inclusions */
+  color: #4b5563; /* ~text-gray-500 */
+  line-height: 1.4;
+}
+
+.sb-package-inclusions .sb-package-spaces .font-medium,
+.sb-package-inclusions .sb-package-extras .font-medium {
+  font-size: 0.75rem; /* Smaller font weight */
+  font-weight: 600;
+  color: #374151; /* ~text-gray-600 */
+}
+
 .sb-price-overrides {
   margin-top: 4px;
   font-size: 0.8em;

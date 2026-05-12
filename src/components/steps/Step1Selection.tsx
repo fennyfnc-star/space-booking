@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useBookingStore } from "@/store/bookingStore";
-import { fetchSpaces, fetchPackages } from "@/utils/api";
-import type { Space, Package, SelectionItem } from "@/types";
+import { fetchSpaces, fetchPackages, fetchAllExtras } from "@/utils/api";
+import type { Space, Package, SelectionItem, Extra } from "@/types";
 
 export function Step1Selection() {
   const formatTimeTo12Hour = (timeStr: string): string => {
@@ -27,19 +27,39 @@ export function Step1Selection() {
 
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
+  const [extras, setExtras] = useState<Extra[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"space" | "package">("space");
 
   // Load data and resource map
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchSpaces(), fetchPackages(), loadResourceMap()])
-      .then(([s, p]) => {
+    Promise.all([fetchSpaces(), fetchPackages(), fetchAllExtras(), loadResourceMap()])
+      .then(([s, p, e]) => {
         setSpaces(s);
         setPackages(p);
+        setExtras(e);
       })
       .finally(() => setLoading(false));
   }, [loadResourceMap]);
+
+  // Load data and resource map
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchSpaces(), fetchPackages(), fetchAllExtras(), loadResourceMap()])
+      .then(([s, p, e]) => {
+        setSpaces(s);
+        setPackages(p);
+        setExtras(e);
+      })
+      .finally(() => setLoading(false));
+  }, [loadResourceMap]);
+  
+  // Helper: Resolve extra ID to title
+  const getExtraTitle = (extraId: number): string => {
+    const extra = extras.find(e => e.id === extraId);
+    return extra?.title || `Extra #${extraId}`;
+  };
 
   useEffect(() => {
     checkCartBooking();
@@ -227,6 +247,26 @@ export function Step1Selection() {
                 {(item as Package).duration > 0 &&
                   ` · ${(item as Package).duration}h`}
               </p>
+              
+              {/* Display package inclusions */}
+              <div className="sb-package-inclusions">
+                {(item as Package).space_ids && (item as Package).space_ids.length > 0 && (
+                  <div className="sb-package-spaces">
+                    <span className="font-medium">Includes spaces:</span> {spaces
+                      .filter(space => (item as Package).space_ids?.includes(space.id))
+                      .map(space => space.title)
+                      .join(', ')}
+                  </div>
+                )}
+                
+                {(item as Package).extra_ids && (item as Package).extra_ids.length > 0 && (
+                  <div className="sb-package-extras">
+                    <span className="font-medium">Includes extras:</span> {(item as Package).extra_ids
+                      .map(extraId => getExtraTitle(extraId))
+                      .join(', ')}
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>

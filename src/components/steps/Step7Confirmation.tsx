@@ -54,6 +54,7 @@ interface BookingData {
     | Array<{ extra_id: number; quantity: number; title?: string }>;
   _extras_details?: ExtraDetail[];
   _price_breakdown?: PriceBreakdownItem[];
+  _package_inclusions?: Array<{ type: string; title: string; label?: string }>;
   notes?: string;
 }
 
@@ -62,6 +63,7 @@ export function Step7Confirmation() {
   const bookingId = useBookingStore((s) => s.bookingId);
   const reset = useBookingStore((s) => s.reset);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
+  const [packageData, setPackageData] = useState<any>(null); // Store for package details if booking includes a package
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -73,9 +75,24 @@ export function Step7Confirmation() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
         })
-        .then((data) => {
+        .then(async (data) => {
           console.log("BOOKING DATA: ", data);
           setBookingData(data);
+          
+          // If booking includes a package, fetch package details
+          if (data.package_id) {
+            try {
+              const packageRes = await fetch(`${window.sbConfig.apiBase}/packages`);
+              if (packageRes.ok) {
+                const allPackages = await packageRes.json();
+                const packageDetails = allPackages.find((pkg: any) => pkg.id === data.package_id);
+                setPackageData(packageDetails);
+              }
+            } catch (err) {
+              console.error("Failed to fetch package details:", err);
+            }
+          }
+
           setLoading(false);
         })
         .catch((err) => {
@@ -189,7 +206,7 @@ export function Step7Confirmation() {
             {bookingData._selected_items &&
               bookingData._selected_items.length > 1 && (
                 <tr>
-                  <th>Selected Spaces</th>
+                  <th>Selected Items</th>
                   <td>
                     <ul style={{ margin: 0, paddingLeft: "20px" }}>
                       {bookingData._selected_items?.map((item) => (
@@ -202,6 +219,55 @@ export function Step7Confirmation() {
                   </td>
                 </tr>
               )}
+            
+            {/* Display package inclusions if booking includes a package */}
+            {bookingData.package_id && packageData && (
+              <tr>
+                <th>Package Inclusions</th>
+                <td>
+                  <div className="sb-package-breakdown">
+                    <div className="text-sm mb-2">
+                      <strong>{packageData.title}</strong> includes:
+                    </div>
+                    {packageData.space_ids && packageData.space_ids.length > 0 && (
+                      <div className="mb-2">
+                        <span className="font-medium">Spaces:</span> {packageData.space_ids
+                          .map((spaceId: number) => {
+                            const space = typeof bookingData._space_titles !== 'undefined' 
+                              && bookingData._space_titles 
+                              && bookingData._space_titles.length > 0
+                              ? bookingData._space_titles.find((_, index) => 
+                                  bookingData._selected_items?.find(
+                                    (item: SelectedItem) => item.id === spaceId
+                                  )
+                                )
+                              : `Space #${spaceId}`;
+                            // Find space title from the selected items
+                            const selectedItem = bookingData._selected_items?.find(
+                              (item: SelectedItem) => item.id === spaceId
+                            );
+                            return selectedItem ? selectedItem.title : `Space #${spaceId}`;
+                          })
+                          .join(', ')}
+                      </div>
+                    )}
+                    {packageData.extra_ids && packageData.extra_ids.length > 0 && (
+                      <div>
+                        <span className="font-medium">Extras:</span> {packageData.extra_ids
+                          .map((extraId: number) => {
+                            // Look for extra in booking extras or return placeholder
+                            const bookingExtra = bookingData._extras_details?.find(
+                              (extra: ExtraDetail) => extra.extra_id === extraId
+                            );
+                            return bookingExtra ? bookingExtra.title || `Extra #${extraId}` : `Extra #${extraId}`;
+                          })
+                          .join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )}
             <tr>
               <th>Date</th>
               <td>{bookingData.booking_date}</td>

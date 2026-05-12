@@ -30,7 +30,12 @@ final class PackageMetaBox
         wp_nonce_field('sb_package_save', 'sb_package_nonce');
 
         $price = get_post_meta($post->ID, '_sb_package_price', true);
-        $space_id = get_post_meta($post->ID, '_sb_package_space_id', true);
+        $space_ids = get_post_meta($post->ID, '_sb_package_space_ids', true);
+        if (!is_array($space_ids)) {
+            // For backwards compatibility, fall back to old single field
+            $single_space_id = get_post_meta($post->ID, '_sb_package_space_id', true);
+            $space_ids = $single_space_id ? [(int)$single_space_id] : [];
+        }
         $duration = get_post_meta($post->ID, '_sb_package_duration', true);
         $extra_ids = get_post_meta($post->ID, '_sb_package_extra_ids', true);
         if (!is_array($extra_ids))
@@ -56,7 +61,7 @@ final class PackageMetaBox
                 style="width:100%;min-height:100px">
                 <?php foreach ($spaces as $space): ?>
                 <option value="<?php echo esc_attr($space->ID); ?>"
-                    <?php selected(in_array($space->ID, (array) $space_id)); ?>>
+                    <?php selected(in_array($space->ID, array_map('intval', $space_ids))); ?>>
                     <?php echo esc_html($space->post_title); ?> (ID: <?php echo $space->ID; ?>)
                 </option>
                 <?php endforeach; ?>
@@ -102,6 +107,8 @@ final class PackageMetaBox
         update_post_meta($post_id, '_sb_package_price', (float) ($_POST['sb_package_price'] ?? 0));
         $space_ids = array_map('absint', (array) ($_POST['sb_package_space_ids'] ?? []));
         update_post_meta($post_id, '_sb_package_space_ids', $space_ids);
+        // For backwards compatibility - set single space ID if only one space selected
+        update_post_meta($post_id, '_sb_package_space_id', !empty($space_ids) ? $space_ids[0] : 0);
         update_post_meta($post_id, '_sb_package_duration', (int) ($_POST['sb_package_duration'] ?? 0));
 
         $extra_ids = array_map('absint', (array) ($_POST['sb_package_extra_ids'] ?? []));

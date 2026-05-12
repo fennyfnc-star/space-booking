@@ -19,7 +19,29 @@ export function Step6Payment() {
     hasCartBooking,
     checkCartBooking,
     selectedItems,
+    packageCoverage,
   } = useBookingStore();
+
+  // Get package title for breakdown enrichment
+  const packageTitle = packageCoverage.length > 0 ? packageCoverage[0].packageTitle : null;
+
+  // Get space name for breakdown enrichment
+  const spaceName = (() => {
+    const spaceItem = selectedItems.find((i) => i.type === "space");
+    if (spaceItem) return spaceItem.title;
+    const pkgItem = selectedItems.find((i) => i.type === "package") as any;
+    if (pkgItem?.space_name) return pkgItem.space_name;
+    return "";
+  })();
+
+  // Enrich breakdown label to include space name when package selected
+  const enrichBreakdownLabel = (label: string): string => {
+    if (!packageTitle || !spaceName) return label;
+    if (label.includes(packageTitle)) {
+      return `${spaceName} - ${label}`;
+    }
+    return label;
+  };
 
   const [loading, setLoading] = useState(false);
   const [checkingCart, setCheckingCart] = useState(true);
@@ -43,19 +65,35 @@ export function Step6Payment() {
       if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime)
         return;
 
-      // Build item_ids - include package ID when package is selected so backend uses flat price
-      const itemIds: number[] = [];
+      // Build item_ids - include package ID if selected, but also any additional spaces not in the package
       const packageId = selectedItems.find((i) => i.type === "package")?.id;
+      const itemIds: number[] = [];
+      
+      // Add package ID if it exists
       if (packageId) {
-        // Package selected: use package ID so backend applies flat price
-        itemIds.push(Number(packageId));
-      } else {
-        // Space-only: use space IDs
-        for (const item of selectedItems) {
+          itemIds.push(Number(packageId));
+      }
+      
+      // Add any additional spaces that were selected separately (not part of the package)
+      // This allows users to select a package plus additional spaces
+      for (const item of selectedItems) {
           if (item.type === "space") {
-            itemIds.push(Number(item.id));
+              // Only add space if it's not already part of the package
+              // If no package is selected, add all spaces
+              if (!packageId) {
+                  itemIds.push(Number(item.id));
+              } else {
+                  // If package exists, only add spaces that are NOT part of the package
+                  // Determine which spaces are in the package
+                  const pkgItem = selectedItems.find(i => i.type === "package") as Package | undefined;
+                  const packageSpaceIds = pkgItem?.space_ids || [];
+                  
+                  // Add the space if it's not in the package
+                  if (!packageSpaceIds.includes(Number(item.id))) {
+                      itemIds.push(Number(item.id));
+                  }
+              }
           }
-        }
       }
       
       const pricingParams = {
@@ -227,7 +265,7 @@ export function Step6Payment() {
         <ul className="sb-breakdown">
           {priceBreakdown.map((item, i) => (
             <li key={i} className="sb-breakdown__item">
-              <span>{item.label}</span>
+              <span>{enrichBreakdownLabel(item.label)}</span>
               <span>
                 {window.sbConfig.symbol}
                 {item.amount.toFixed(2)}

@@ -70,6 +70,10 @@ export const fetchExtras = (
     `/extras?space_id=${spaceId}&date=${date}&start_time=${startTime}&end_time=${endTime}`,
   );
 
+// Fetch all extras (no filters - for package card display)
+export const fetchAllExtras = () =>
+  apiFetch<Extra[]>('/extras/all');
+
 // ── Pricing ───────────────────────────────────────────────────────────────────
 
 export const fetchPricing = (params: {

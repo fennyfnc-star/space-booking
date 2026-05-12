@@ -14,7 +14,29 @@ export function Step5Checkout() {
     setCheckoutData,
     prevStep,
     selectedItems,
+    packageCoverage,
   } = useBookingStore();
+
+  // Get package title for breakdown enrichment
+  const packageTitle = packageCoverage.length > 0 ? packageCoverage[0].packageTitle : null;
+
+  // Get space name for breakdown enrichment
+  const spaceName = (() => {
+    const spaceItem = selectedItems.find((i) => i.type === "space");
+    if (spaceItem) return spaceItem.title;
+    const pkgItem = selectedItems.find((i) => i.type === "package") as any;
+    if (pkgItem?.space_name) return pkgItem.space_name;
+    return "";
+  })();
+
+  // Enrich breakdown label to include space name when package selected
+  const enrichBreakdownLabel = (label: string): string => {
+    if (!packageTitle || !spaceName) return label;
+    if (label.includes(packageTitle)) {
+      return `${spaceName} - ${label}`;
+    }
+    return label;
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -183,7 +205,7 @@ export function Step5Checkout() {
         <ul className="sb-breakdown">
           {priceBreakdown.map((item, i) => (
             <li key={i} className="sb-breakdown__item">
-              <span>{item.label}</span>
+              <span>{enrichBreakdownLabel(item.label)}</span>
               <span>
                 {item.amount.toFixed(2)} {window.sbConfig.symbol}
               </span>

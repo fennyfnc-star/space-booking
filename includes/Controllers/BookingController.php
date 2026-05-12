@@ -224,6 +224,28 @@ final class BookingController extends WP_REST_Controller
 			if ($frontend_breakdown && $price['breakdown']) {
 				update_post_meta($booking_id, '_sb_price_breakdown_enriched', $frontend_breakdown);
 			}
+			// Save package inclusions for email display (spaces and extras included in package)
+			$inclusions = [];
+			if (!empty($price['items'])) {
+				foreach ($price['items'] as $item) {
+					// Check if this item has $0 breakdown entries (package inclusions)
+					if (!empty($item['breakdown'])) {
+						foreach ($item['breakdown'] as $bd) {
+							if (isset($bd['amount']) && $bd['amount'] == 0 && strpos($bd['label'] ?? '', '(Package Inclusion)') !== false) {
+								$inclusions[] = [
+									'type' => $item['type'],
+									'title' => $item['title'],
+									'label' => $bd['label']
+								];
+							}
+						}
+					}
+				}
+			}
+			if (!empty($inclusions)) {
+				$this->repo->save_meta($booking_id, '_sb_package_inclusions', wp_json_encode($inclusions));
+				error_log('SpaceBooking: Saved ' . count($inclusions) . ' package inclusions for booking #' . $booking_id);
+			}
 		} catch (\RuntimeException $e) {
 			return new WP_REST_Response(['message' => 'Could not save booking.'], 500);
 		}

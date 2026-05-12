@@ -107,6 +107,26 @@ $admin_url = admin_url('admin.php?page=space-booking');
                 <td><?php echo esc_html(sb_format_time_12hour($booking['start_time']) . ' – ' . sb_format_time_12hour($booking['end_time'])); ?>
                 </td>
             </tr>
+            <?php 
+            // Get package inclusions from booking meta
+            $package_inclusions = get_post_meta($booking['id'], '_sb_package_inclusions', true);
+            $inclusions_list = [];
+            if ($package_inclusions) {
+                $inclusions_list = is_string($package_inclusions) ? json_decode($package_inclusions, true) : $package_inclusions;
+            }
+            ?>
+            <?php if (!empty($inclusions_list)): ?>
+            <tr>
+                <th>Package Inclusions</th>
+                <td>
+                    <?php foreach ($inclusions_list as $inc): ?>
+                        <span style="display: inline-block; margin-right: 8px; background: #e7f3ff; padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+                            ✓ <?php echo esc_html($inc['title']); ?>
+                        </span>
+                    <?php endforeach; ?>
+                </td>
+            </tr>
+            <?php endif; ?>
             <?php if (!empty($extras)): ?>
             <tr>
                 <th>Extras</th>

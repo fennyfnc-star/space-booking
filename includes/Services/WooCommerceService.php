@@ -87,6 +87,9 @@ final class WooCommerceService
         // Clear cart first
         WC()->cart->empty_cart();
 
+        // Track package inclusions for metadata (to show in emails)
+        $package_inclusions = [];
+        
         // Common meta for ALL items
         $common_meta = [
             'sb_booking_id' => $booking_id,
@@ -98,6 +101,7 @@ final class WooCommerceService
             'sb_customer_name' => $booking_data['customer_name'],
             'sb_customer_email' => $booking_data['customer_email'],
             'sb_extras' => wp_json_encode($extras),
+            'sb_package_inclusions' => wp_json_encode($package_inclusions), // For email display
         ];
 
         $added_count = 0;
@@ -124,11 +128,29 @@ final class WooCommerceService
 
         error_log('SpaceBooking WC: duration_hours=' . $duration_hours . ' (start=' . $start_time . ', end=' . $end_time . ')');
 
+        // Track package inclusions for metadata (to show in emails)
+        $package_inclusions = [];
+        
         // 1. Add ONE PRODUCT PER ITEM (spaces/packages)
         foreach ($items as $item) {
             $item_name = $item['title'];
+            $item_price = $item['subtotal'];
             $thumbnail_url = $item['thumbnail'] ?? '';
-            $item_product = $create_product($item_name, $item['subtotal'], $item['breakdown'], $item['id'], $start_time, $end_time, $duration_hours, $thumbnail_url);
+            
+            // Skip $0 items - add as package inclusions metadata instead
+            // This fixes WooCommerce not supporting $0 orders
+            if ($item_price <= 0) {
+                // Collect $0 items as inclusions for email display
+                $package_inclusions[] = [
+                    'type' => $item['type'],
+                    'title' => $item_name,
+                    'price' => 0
+                ];
+                error_log('SpaceBooking WC: Skipping $0 item "' . $item_name . '" - added as inclusion metadata');
+                continue;
+            }
+            
+            $item_product = $create_product($item_name, $item_price, $item['breakdown'], $item['id'], $start_time, $end_time, $duration_hours, $thumbnail_url);
 
             // Description w/ time
             $desc = '<strong>' . $item['title'] . '</strong><br>';
@@ -153,6 +175,7 @@ final class WooCommerceService
         }
 
         // 2. Add EXTRA products (separate line items, use breakdown if available)
+        // Skip $0 extras (package inclusions) - they're already in package_inclusions
         foreach ($extras_breakdown as $extra_item) {
             // Match to extras data for ID/qty
             $matched_extra = null;
@@ -166,6 +189,17 @@ final class WooCommerceService
             $extra_id = $matched_extra['extra_id'] ?? 0;
             $extra_title = $extra_item['label'];
             $extra_price = $extra_item['amount'];
+            
+            // Skip $0 extras (package inclusions) - add to metadata instead
+            if ($extra_price <= 0) {
+                $package_inclusions[] = [
+                    'type' => 'extra',
+                    'title' => $extra_title,
+                    'price' => 0
+                ];
+                error_log('SpaceBooking WC: Skipping $0 extra "' . $extra_title . '" - added as inclusion metadata');
+                continue;
+            }
 
             // Extras product naming with time slot info
             $extra_product_name = $extra_title;

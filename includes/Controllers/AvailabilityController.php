@@ -68,6 +68,15 @@ final class AvailabilityController extends WP_REST_Controller
 			],
 		]);
 
+		// All extras list (no filters - for package card display)
+		register_rest_route($this->namespace, '/extras/all', [
+			[
+				'methods' => WP_REST_Server::READABLE,
+				'callback' => [$this, 'get_all_extras'],
+				'permission_callback' => '__return_true',
+			],
+		]);
+
 		// No pricing route here (handled by PricingController)
 	}
 
@@ -164,6 +173,30 @@ final class AvailabilityController extends WP_REST_Controller
 		}
 
 		return rest_ensure_response($extras);
+	}
+
+	/**
+	 * Get all extras (no filters) - for package card display
+	 */
+	public function get_all_extras(WP_REST_Request $request): WP_REST_Response
+	{
+		$extras = get_posts([
+			'post_type' => 'sb_extra',
+			'post_status' => 'publish',
+			'posts_per_page' => -1,
+		]);
+
+		$result = array_map(function($post) {
+			return [
+				'id' => $post->ID,
+				'title' => $post->post_title,
+				'description' => $post->post_content,
+				'price' => (float) get_post_meta($post->ID, '_sb_extra_price', true),
+				'available_qty' => (int) get_post_meta($post->ID, '_sb_extra_qty', true),
+			];
+		}, $extras);
+
+		return rest_ensure_response($result);
 	}
 
 	// ── Validators ───────────────────────────────────────────────────────────

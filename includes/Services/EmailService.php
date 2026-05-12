@@ -151,6 +151,20 @@ final class EmailService
 		}
 
 		// Parse shortcodes
+		// Get package inclusions for email
+		$package_inclusions = get_post_meta((int) $booking_id, '_sb_package_inclusions', true);
+		$inclusions_html = '';
+		if ($package_inclusions) {
+			$inclusions = is_string($package_inclusions) ? json_decode($package_inclusions, true) : $package_inclusions;
+			if (!empty($inclusions)) {
+				$inclusions_html = '<ul>';
+				foreach ($inclusions as $inc) {
+					$inclusions_html .= '<li>✓ ' . esc_html($inc['title'] ?? $inc['label'] ?? 'Included item') . '</li>';
+				}
+				$inclusions_html .= '</ul>';
+			}
+		}
+		
 		$body = str_replace(
 			[
 				'[customer_name]',
@@ -158,7 +172,8 @@ final class EmailService
 				'[space_name]',
 				'[access_instructions]',
 				'[total_price]',
-				'[order_id]'
+				'[order_id]',
+				'[package_inclusions]'
 			],
 			[
 				esc_html($booking['customer_name']),
@@ -166,7 +181,8 @@ final class EmailService
 				esc_html(get_the_title((int) $booking['space_id'])),
 				esc_html(get_post_meta((int) $booking['space_id'], '_sb_access_instructions', true) ?: 'TBD'),
 				\SpaceBooking\Services\CurrencyService::format((float) $booking['total_price']),
-				esc_html($order_id)
+				esc_html($order_id),
+				$inclusions_html ?: '<em>No inclusions</em>'
 			],
 			$template
 		);
