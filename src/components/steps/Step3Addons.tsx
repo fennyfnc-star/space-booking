@@ -248,13 +248,8 @@ export function Step3Addons() {
   };
   const spaceName = getSpaceName();
 
-  // Enrich breakdown label to include space name when package selected
+  // Return label as-is from backend
   const enrichBreakdownLabel = (label: string): string => {
-    if (!pkgItem || !spaceName) return label;
-    // If label already contains the package title, add space name before it
-    if (label.includes(packageTitle || "")) {
-      return `${spaceName} - ${label}`;
-    }
     return label;
   };
 

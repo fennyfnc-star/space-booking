@@ -29,12 +29,8 @@ export function Step5Checkout() {
     return "";
   })();
 
-  // Enrich breakdown label to include space name when package selected
+  // Return label as-is from backend
   const enrichBreakdownLabel = (label: string): string => {
-    if (!packageTitle || !spaceName) return label;
-    if (label.includes(packageTitle)) {
-      return `${spaceName} - ${label}`;
-    }
     return label;
   };
 
