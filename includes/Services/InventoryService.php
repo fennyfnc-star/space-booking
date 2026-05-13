@@ -88,6 +88,12 @@ final class InventoryService
 			$booked_qty = $this->get_booked_quantity($extra->ID, $date, $start_time, $end_time);
 			$available_qty = max(0, $inventory - $booked_qty);
 
+			// Get package ownership
+			$pkg_ids = get_post_meta($extra->ID, '_sb_package_ids', true);
+			if (!is_array($pkg_ids)) {
+				$pkg_ids = [];
+			}
+
 			$result[] = [
 				'id' => $extra->ID,
 				'title' => $extra->post_title,
@@ -99,6 +105,7 @@ final class InventoryService
 				'is_available' => $available_qty > 0,
 				'unavailable_reason' => $available_qty === 0 ? 'sold_out' : null,
 				'thumbnail' => get_the_post_thumbnail_url($extra->ID, 'thumbnail') ?: null,
+				'package_ids' => array_map('intval', $pkg_ids),
 			];
 		}
 

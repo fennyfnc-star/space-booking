@@ -260,7 +260,7 @@ export function Step6Payment() {
         <h4>Price Breakdown</h4>
         <ul className="sb-breakdown">
           {priceBreakdown.map((item, i) => (
-            <li key={i} className="sb-breakdown__item">
+            <li key={i} className={`sb-breakdown__item ${item.label.includes('(Package Inclusion)') ? 'package-inclusion' : ''}`}>
               <span>{enrichBreakdownLabel(item.label)}</span>
               <span>
                 {window.sbConfig.symbol}

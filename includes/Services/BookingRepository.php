@@ -342,21 +342,23 @@ class BookingRepository
 		$space_ids_params = $space_ids;
 
 		// STEP 1: Find all booking_ids where any of the requested spaces appear
-		// Either in sb_bookings (direct) OR in sb_booking_spaces (linked)
+		// Either in sb_bookings (direct) OR in sb_booking_spaces (linked) OR in sb_booking_packages (package bookings)
 		$booking_id_query = $wpdb->prepare("
 			SELECT DISTINCT b.id as booking_id
 			FROM {$wpdb->prefix}sb_bookings b
 			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
+			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
 			WHERE (
 				b.space_id IN ({$space_ids_placeholder})
 				OR bs.space_id IN ({$space_ids_placeholder})
+				OR bp.space_id IN ({$space_ids_placeholder})
 			)
 			AND b.booking_date = %s
 			AND (
 				b.status IN ('confirmed', 'in_review', 'paid')
 				OR (b.status = 'pending' AND b.expired_at > NOW())
 			)",
-			...array_merge($space_ids_params, $space_ids_params, [$date]));
+			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date]));
 
 		error_log('SB_DEBUG: get_blocking_intervals booking_id query: ' . str_replace("\n", ' ', $booking_id_query));
 

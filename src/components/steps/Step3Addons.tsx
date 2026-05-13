@@ -261,6 +261,24 @@ export function Step3Addons() {
     return extraIds.includes(extraId);
   };
 
+  // Check if extra belongs to any package (should be hidden from addable list)
+  // Also checks if extra is in the selected package's extra_ids for backward compatibility
+  const isPackageOwned = (extra: Extra): boolean => {
+    // Check package_ids field from API
+    if (extra.package_ids && extra.package_ids.length > 0) {
+      return true;
+    }
+    // Fallback: check if extra is in the selected package's extra_ids
+    if (pkgItem) {
+      const pkg = pkgItem as Package;
+      const extraIds = pkg.extra_ids || [];
+      if (extraIds.includes(extra.id)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const isSelected = (extraId: number) =>
     selectedExtras.some((e) => e.extra_id === extraId);
 
@@ -449,6 +467,8 @@ export function Step3Addons() {
               {/* Show "Included" badge if extra is in package, otherwise show Add/Remove button */}
               {isIncludedInPackage(extra.id) ? (
                 <span className="sb-badge sb-badge--included">✓ Included</span>
+              ) : isPackageOwned(extra) ? (
+                <span className="sb-badge sb-badge--package-only">Package Only</span>
               ) : (
                 <button
                   className={`sb-btn ${isSelected(extra.id) ? "sb-btn--danger" : "sb-btn--secondary"}`}
@@ -476,7 +496,7 @@ export function Step3Addons() {
           <h4>Price Preview</h4>
           <ul className="sb-breakdown">
             {preview.breakdown.map((item, i) => (
-              <li key={i} className="sb-breakdown__item">
+              <li key={i} className={`sb-breakdown__item ${item.label.includes('(Package Inclusion)') ? 'package-inclusion' : ''}`}>
                 <span>{enrichBreakdownLabel(item.label)}</span>
                 <span>
                   {window.sbConfig.symbol}

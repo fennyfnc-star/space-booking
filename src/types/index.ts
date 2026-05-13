@@ -66,6 +66,7 @@ export interface Extra {
   is_available: boolean;
   unavailable_reason: "sold_out" | "space_override" | null;
   thumbnail: string | null;
+  package_ids?: number[]; // IDs of packages this extra belongs to
 }
 
 export interface TimeSlot {

@@ -155,7 +155,13 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     console.log("loadResourceMap called");
     try {
       const map = await fetchResourceMap();
-      console.log("resourceMap loaded:", Object.keys(map));
+      console.log("resourceMap loaded, keys:", Object.keys(map));
+      // Log package footprints
+      for (const [id, data] of Object.entries(map)) {
+        if (data.type === 'package') {
+          console.log("  Package", id, "footprint:", data.footprint);
+        }
+      }
       set({ resourceMap: map });
     } catch (e) {
       console.error("Failed to load resource map:", e);

@@ -52,15 +52,10 @@ final class ConflictsController extends WP_REST_Controller
         if ($type === 'space') {
             $ids = $this->availability->get_conflict_group_ids($item_id);
         } elseif ($type === 'package') {
-            $space_ids = get_post_meta($item_id, '_sb_package_space_ids', true) ?: [];
-            if (empty($space_ids)) {
-                $space_ids = [get_post_meta($item_id, '_sb_package_space_id', true) ?: 0];
-            }
-            $space_ids = array_map('intval', (array) $space_ids);
+            $space_id = get_post_meta($item_id, '_sb_package_space_id', true) ?: 0;
             $ids = [];
-            foreach ($space_ids as $sid) {
-                if ($sid)
-                    $ids = array_merge($ids, $this->availability->get_conflict_group_ids($sid));
+            if ($space_id) {
+                $ids = $this->availability->get_conflict_group_ids($space_id);
             }
             $ids = array_unique($ids);
             array_unshift($ids, $item_id);  // Include package itself
@@ -103,17 +98,12 @@ final class ConflictsController extends WP_REST_Controller
 
         // Packages
         foreach ($packages as $package) {
-            $space_ids = get_post_meta($package->ID, '_sb_package_space_ids', true) ?: [];
-            if (empty($space_ids)) {
-                $space_ids = [(int) get_post_meta($package->ID, '_sb_package_space_id', true)];
-            }
-            $space_ids = array_filter(array_map('intval', (array) $space_ids));
+            $space_id = get_post_meta($package->ID, '_sb_package_space_id', true) ?: 0;
+            $space_id = (int) $space_id;
 
             $footprint = [(int) $package->ID];
-            foreach ($space_ids as $sid) {
-                if ($sid) {
-                    $footprint = array_merge($footprint, $this->availability->get_conflict_group_ids($sid));
-                }
+            if ($space_id) {
+                $footprint = array_merge($footprint, $this->availability->get_conflict_group_ids($space_id));
             }
             $footprint = array_unique($footprint);
 

@@ -30,12 +30,7 @@ final class PackageMetaBox
         wp_nonce_field('sb_package_save', 'sb_package_nonce');
 
         $price = get_post_meta($post->ID, '_sb_package_price', true);
-        $space_ids = get_post_meta($post->ID, '_sb_package_space_ids', true);
-        if (!is_array($space_ids)) {
-            // For backwards compatibility, fall back to old single field
-            $single_space_id = get_post_meta($post->ID, '_sb_package_space_id', true);
-            $space_ids = $single_space_id ? [(int)$single_space_id] : [];
-        }
+        $space_id = get_post_meta($post->ID, '_sb_package_space_id', true);
         $duration = get_post_meta($post->ID, '_sb_package_duration', true);
         $extra_ids = get_post_meta($post->ID, '_sb_package_extra_ids', true);
         if (!is_array($extra_ids))
@@ -55,19 +50,18 @@ final class PackageMetaBox
 
     </tr>
     <tr>
-        <th><label><?php esc_html_e('Included Spaces (Multi)', 'space-booking'); ?></label></th>
+        <th><label for="sb_package_space_id"><?php esc_html_e('Included Space', 'space-booking'); ?></label></th>
         <td>
-            <select id="sb_package_space_ids" name="sb_package_space_ids[]" multiple size="6"
-                style="width:100%;min-height:100px">
+            <select id="sb_package_space_id" name="sb_package_space_id" style="width:100%;max-width:300px">
+                <option value="">— Select a space —</option>
                 <?php foreach ($spaces as $space): ?>
                 <option value="<?php echo esc_attr($space->ID); ?>"
-                    <?php selected(in_array($space->ID, array_map('intval', $space_ids))); ?>>
-                    <?php echo esc_html($space->post_title); ?> (ID: <?php echo $space->ID; ?>)
+                    <?php selected($space_id, $space->ID); ?>>
+                    <?php echo esc_html($space->post_title); ?>
                 </option>
                 <?php endforeach; ?>
             </select>
-            <p class="description">Hold Ctrl/Cmd to select multiple spaces this package includes. Used for conflict
-                resolution.</p>
+            <p class="description">The space included in this package.</p>
         </td>
     </tr>
     <tr>
@@ -105,13 +99,40 @@ final class PackageMetaBox
         }
 
         update_post_meta($post_id, '_sb_package_price', (float) ($_POST['sb_package_price'] ?? 0));
-        $space_ids = array_map('absint', (array) ($_POST['sb_package_space_ids'] ?? []));
-        update_post_meta($post_id, '_sb_package_space_ids', $space_ids);
-        // For backwards compatibility - set single space ID if only one space selected
-        update_post_meta($post_id, '_sb_package_space_id', !empty($space_ids) ? $space_ids[0] : 0);
+        $space_id = absint($_POST['sb_package_space_id'] ?? 0);
+        update_post_meta($post_id, '_sb_package_space_id', $space_id);
         update_post_meta($post_id, '_sb_package_duration', (int) ($_POST['sb_package_duration'] ?? 0));
 
         $extra_ids = array_map('absint', (array) ($_POST['sb_package_extra_ids'] ?? []));
         update_post_meta($post_id, '_sb_package_extra_ids', $extra_ids);
+
+        // Set _sb_package_ids on extras that are now part of this package
+        // and clear it from extras that were removed
+        $all_extras = get_posts([
+            'post_type' => 'sb_extra',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+        ]);
+
+        foreach ($all_extras as $extra_id) {
+            $current_package_ids = get_post_meta($extra_id, '_sb_package_ids', true);
+            if (!is_array($current_package_ids)) {
+                $current_package_ids = [];
+            }
+
+            if (in_array($extra_id, $extra_ids)) {
+                // This extra is included in the package - add package_id if not already there
+                if (!in_array($post_id, $current_package_ids)) {
+                    $current_package_ids[] = $post_id;
+                    update_post_meta($extra_id, '_sb_package_ids', $current_package_ids);
+                }
+            } else {
+                // This extra was previously owned by this package - remove it
+                if (in_array($post_id, $current_package_ids)) {
+                    $current_package_ids = array_values(array_diff($current_package_ids, [$post_id]));
+                    update_post_meta($extra_id, '_sb_package_ids', $current_package_ids);
+                }
+            }
+        }
     }
 }

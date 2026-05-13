@@ -32,7 +32,14 @@ final class ExtraMetaBox
         $price = get_post_meta($post->ID, '_sb_extra_price', true);
         $inventory = get_post_meta($post->ID, '_sb_inventory', true) ?: 1;
 
-        // Allowed spaces (optional restriction)
+        // Package ownership (multiple packages allowed)
+        $package_ids = get_post_meta($post->ID, '_sb_package_ids', true);
+        if (!is_array($package_ids)) {
+            $package_ids = [];
+        }
+        $packages = get_posts(['post_type' => 'sb_package', 'posts_per_page' => -1]);
+
+        // Allowed spaces (only when NOT owned by a package)
         $allowed = get_post_meta($post->ID, '_sb_allowed_spaces', true);
         $spaces = get_posts(['post_type' => 'sb_space', 'posts_per_page' => -1]);
         ?>
@@ -82,17 +89,43 @@ final class ExtraMetaBox
         </td>
     </tr>
     <tr>
-        <th><label><?php esc_html_e('Allowed Spaces', 'space-booking'); ?></label></th>
+        <th><label><?php esc_html_e('Assigned Packages', 'space-booking'); ?></label></th>
         <td>
-            <?php foreach ($spaces as $space): ?>
+            <?php if (empty($packages)): ?>
+            <p class="description"><?php esc_html_e('No packages available.', 'space-booking'); ?></p>
+            <?php else: ?>
+            <?php foreach ($packages as $pkg): ?>
             <label style="display:block;margin-bottom:4px">
-                <input type="checkbox" name="sb_allowed_spaces[]" value="<?php echo esc_attr($space->ID); ?>"
-                    <?php checked(is_array($allowed) && in_array($space->ID, $allowed, false)); ?>>
-                <?php echo esc_html($space->post_title); ?>
+                <input type="checkbox" name="sb_package_ids[]" value="<?php echo esc_attr($pkg->ID); ?>"
+                    <?php checked(in_array($pkg->ID, array_map('intval', $package_ids)), true); ?>>
+                <?php echo esc_html($pkg->post_title); ?>
             </label>
             <?php endforeach; ?>
             <p class="description">
-                <?php esc_html_e('Leave all unchecked to allow in all spaces.', 'space-booking'); ?></p>
+                <?php esc_html_e('If assigned to one or more packages, this extra will be included in those packages and cannot be added separately to spaces.', 'space-booking'); ?></p>
+            <?php endif; ?>
+        </td>
+    </tr>
+    <tr>
+        <th><label><?php esc_html_e('Allowed Spaces', 'space-booking'); ?></label></th>
+        <td>
+            <div id="sb-allowed-spaces-container">
+                <?php if (!empty($package_ids)): ?>
+                <p class="description" style="color:#d63638;">
+                    <?php esc_html_e('This extra is assigned to package(s) and cannot be used with individual spaces.', 'space-booking'); ?>
+                </p>
+                <?php else: ?>
+                <?php foreach ($spaces as $space): ?>
+                <label style="display:block;margin-bottom:4px">
+                    <input type="checkbox" name="sb_allowed_spaces[]" value="<?php echo esc_attr($space->ID); ?>"
+                        <?php checked(is_array($allowed) && in_array($space->ID, $allowed, false)); ?>>
+                    <?php echo esc_html($space->post_title); ?>
+                </label>
+                <?php endforeach; ?>
+                <p class="description">
+                    <?php esc_html_e('Leave all unchecked to allow in all spaces.', 'space-booking'); ?></p>
+                <?php endif; ?>
+            </div>
         </td>
     </tr>
 </table>
@@ -191,8 +224,18 @@ jQuery(document).ready(function($) {
         update_post_meta($post_id, '_sb_extra_price', (float) ($_POST['sb_extra_price'] ?? 0));
         update_post_meta($post_id, '_sb_inventory', (int) ($_POST['sb_inventory'] ?? 1));
 
-        $allowed = array_map('absint', (array) ($_POST['sb_allowed_spaces'] ?? []));
-        update_post_meta($post_id, '_sb_allowed_spaces', $allowed);
+        // Package ownership - multiple packages allowed
+        $package_ids = array_map('absint', (array) ($_POST['sb_package_ids'] ?? []));
+        update_post_meta($post_id, '_sb_package_ids', $package_ids);
+
+        // If assigned to packages, clear allowed spaces (cannot be both)
+        if (!empty($package_ids)) {
+            update_post_meta($post_id, '_sb_allowed_spaces', []);
+        } else {
+            // Only save allowed spaces if NOT assigned to any package
+            $allowed = array_map('absint', (array) ($_POST['sb_allowed_spaces'] ?? []));
+            update_post_meta($post_id, '_sb_allowed_spaces', $allowed);
+        }
 
         // Space availability overrides
         $raw_overrides = $_POST['sb_avail_overrides'] ?? [];
