@@ -209,8 +209,13 @@ export function Step2Scheduling() {
     }
     // Dedupe
     spaceIds = [...new Set(spaceIds)];
-    
+
     console.log("📍 Resolved spaceIds for availability:", spaceIds);
+
+    // Debug: log what each space has booked
+    if (spaceIds.length > 0) {
+      console.log("DEBUG: Checking availability for spaces:", spaceIds);
+    }
 
     if (!selectedDate || spaceIds.length === 0) {
       // No spaces selected yet

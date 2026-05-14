@@ -41,7 +41,9 @@ function cleanup_test_bookings(int $space_id, string $date): void
 // ============================================================
 echo "=== TEST 1: Pending Non-Expired Blocks Slot ===\n";
 
-cleanup_test_bookings(101, $test_date);
+// Use actual space ID 10 (Main Cafe)
+$test_space_id = 10;
+cleanup_test_bookings($test_space_id, $test_date);
 
 // Get future expiry using MySQL time (to ensure timezone consistency)
 $future_expiry = $wpdb->get_var('SELECT DATE_ADD(NOW(), INTERVAL 2 HOUR)');
@@ -49,7 +51,7 @@ echo "Using MySQL future expiry: $future_expiry\n";
 
 // Create pending booking with future expiry (non-expired)
 $pending_id = $repo->create([
-    'space_id' => 101,
+    'space_id' => $test_space_id,
     'customer_name' => 'Pending Customer',
     'customer_email' => 'pending@test.com',
     'booking_date' => $test_date,
@@ -62,7 +64,7 @@ $pending_id = $repo->create([
 echo "Created pending booking ID: $pending_id\n";
 
 // Get blocking intervals
-$blocking = $repo->get_blocking_intervals([101], $test_date);
+$blocking = $repo->get_blocking_intervals([$test_space_id], $test_date);
 echo 'Blocking intervals count: ' . count($blocking) . "\n";
 
 $test_1_pass = !empty($blocking) &&
@@ -76,15 +78,16 @@ echo 'TEST 1 RESULT: ' . ($test_1_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 2: Confirmed Always Blocks ===\n";
 
-// Cleanup space 102
+// Use space 223 (Covered Secret Garden)
+$test_space_id_2 = 223;
 $wpdb->query($wpdb->prepare(
     "DELETE FROM $table WHERE space_id = %d AND booking_date = %s",
-    102, $test_date
+    $test_space_id_2, $test_date
 ));
 
 // Create confirmed booking
 $confirmed_id = $repo->create([
-    'space_id' => 102,
+    'space_id' => $test_space_id_2,
     'customer_name' => 'Confirmed Customer',
     'customer_email' => 'confirmed@test.com',
     'booking_date' => $test_date,
@@ -96,7 +99,7 @@ $confirmed_id = $repo->create([
 echo "Created confirmed booking ID: $confirmed_id\n";
 
 // Get blocking intervals
-$blocking_2 = $repo->get_blocking_intervals([102], $test_date);
+$blocking_2 = $repo->get_blocking_intervals([$test_space_id_2], $test_date);
 echo 'Blocking intervals count: ' . count($blocking_2) . "\n";
 
 $test_2_pass = !empty($blocking_2);
@@ -108,8 +111,8 @@ echo 'TEST 2 RESULT: ' . ($test_2_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 3: Slots Reflect Blocking ===\n";
 
-// Use space 101 from Test 1
-$slots = $availability->get_slots(101, $test_date, 60);
+// Use space 10 from Test 1
+$slots = $availability->get_slots(10, $test_date, 60);
 $slots_array = $slots['slots'];
 
 // Find any blocked slot
@@ -164,9 +167,12 @@ echo 'TEST 4 RESULT: ' . ($test_4_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 5: Get Pending Intervals ===\n";
 
-// Create another pending booking
+// Define test space ID 3 for the pending intervals test
+$test_space_id_3 = 224;
+
+// Create another pending booking on space 224
 $pending2_id = $repo->create([
-    'space_id' => 101,
+    'space_id' => $test_space_id_3,
     'customer_name' => 'Pending 2',
     'customer_email' => 'pending2@test.com',
     'booking_date' => $test_date,
@@ -176,7 +182,7 @@ $pending2_id = $repo->create([
     'expired_at' => $future_expiry,
 ]);
 
-$pending_intervals = $repo->get_pending_intervals_for_spaces([101], $test_date);
+$pending_intervals = $repo->get_pending_intervals_for_spaces([$test_space_id_3], $test_date);
 echo 'Pending intervals count: ' . count($pending_intervals) . "\n";
 
 $test_5_pass = !empty($pending_intervals);
@@ -187,9 +193,9 @@ echo 'TEST 5 RESULT: ' . ($test_5_pass ? 'PASS' : 'FAIL') . "\n\n";
 // FINAL CLEANUP
 // ============================================================
 echo "=== Final Cleanup ===\n";
-cleanup_test_bookings(101, $test_date);
-cleanup_test_bookings(102, $test_date);
-cleanup_test_bookings(103, $test_date);
+cleanup_test_bookings($test_space_id, $test_date);
+cleanup_test_bookings($test_space_id_2, $test_date);
+cleanup_test_bookings($test_space_id_3, $test_date);
 echo "Done.\n\n";
 
 // ============================================================

@@ -10,7 +10,7 @@
  * 5. Query availability - spaces should block correctly
  * 6. Retrieve booking with all linked data
  */
-require_once dirname(__DIR__) . '/../tests/bootstrap.php';
+require_once __DIR__ . '/bootstrap.php';
 
 global $wpdb;
 

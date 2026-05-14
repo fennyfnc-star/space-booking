@@ -297,15 +297,31 @@ class BookingRepository
 		$space_ids_placeholder = implode(',', array_fill(0, count($space_ids), '%d'));
 		$space_ids_params = $space_ids;
 
-		// Get pending bookings: ONLY valid & non-expired (no '0000-00-00' zombie condition!)
-		return $wpdb->get_results($wpdb->prepare("
-			SELECT start_time as start, end_time as end
-			FROM {$wpdb->prefix}sb_bookings 
-			WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s 
-			AND status = 'pending'
-			AND expired_at > NOW()
-			ORDER BY start_time",
-			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
+		// Get pending bookings: ALSO check linked spaces in sb_booking_spaces and sb_booking_packages
+		// ONLY valid & non-expired (no '0000-00-00' zombie condition!)
+		$results = $wpdb->get_results($wpdb->prepare("
+			SELECT DISTINCT b.start_time as start, b.end_time as end
+			FROM {$wpdb->prefix}sb_bookings b
+			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
+			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
+			WHERE (
+				b.space_id IN ({$space_ids_placeholder})
+				OR bs.space_id IN ({$space_ids_placeholder})
+				OR bp.space_id IN ({$space_ids_placeholder})
+			)
+			AND b.booking_date = %s 
+			AND b.status = 'pending'
+			AND b.expired_at > NOW()
+			ORDER BY b.start_time",
+			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
+
+		// Normalize time strings
+		foreach ($results as &$row) {
+			$row['start'] = date('H:i', strtotime($row['start']));
+			$row['end'] = date('H:i', strtotime($row['end']));
+		}
+
+		return $results;
 	}
 
 	/**

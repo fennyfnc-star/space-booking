@@ -158,46 +158,54 @@ final class AvailabilityService
 			];
 		}
 
-		// Find intersection using start-end keys
-		$common_slot_keys = null;
-		foreach ($space_ids as $space_id) {
-			$slot_keys = [];
-			foreach ($per_space_slots[$space_id] as $slot) {
-				$key = $slot['start'] . '-' . $slot['end'];
-				$slot_keys[$key] = [
-					'start' => $slot['start'],
-					'end' => $slot['end'],
-					'available' => $slot['available'] ?? true,
-					'slot_id' => $slot['start'] . '|' . $slot['end'],
-				];
-			}
-
-			error_log("SB_DEBUG: Space $space_id slot keys: " . json_encode(array_keys($slot_keys)));
-
-			if ($common_slot_keys === null) {
-				$common_slot_keys = array_keys($slot_keys);
-			} else {
-				$common_slot_keys = array_intersect($common_slot_keys, array_keys($slot_keys));
-			}
-		}
-
-		error_log('SB_DEBUG: Common slot keys after intersection: ' . json_encode($common_slot_keys));
-
+		// Find intersection: only slots that are available in ALL spaces
 		$common_slots = [];
-		if (!empty($common_slot_keys)) {
-			$first_space = $space_ids[0];
-			$first_slots_by_key = [];
-			foreach ($per_space_slots[$first_space] as $slot) {
-				$key = $slot['start'] . '-' . $slot['end'];
-				$first_slots_by_key[$key] = $slot;
-			}
-
-			foreach ($common_slot_keys as $key) {
-				if (isset($first_slots_by_key[$key])) {
-					$common_slots[] = $first_slots_by_key[$key];
+		
+		// Get the first space's available slots as base
+		$first_space_id = $space_ids[0];
+		$first_space_slots = $per_space_slots[$first_space_id];
+		
+		// Filter to only available slots in the first space
+		$available_in_first = array_filter($first_space_slots, function($slot) {
+			return !empty($slot['available']);
+		});
+		
+		foreach ($available_in_first as $first_slot) {
+			$slot_start = $first_slot['start'];
+			$slot_end = $first_slot['end'];
+			$slot_key = $slot_start . '-' . $slot_end;
+			
+			// Check if this slot is available in ALL other spaces
+			$is_available_in_all = true;
+			
+			for ($i = 1; $i < count($space_ids); $i++) {
+				$space_id = $space_ids[$i];
+				$space_has_slot = false;
+				$slot_available_in_space = false;
+				
+				// Find this exact time slot in the other space
+				foreach ($per_space_slots[$space_id] as $space_slot) {
+					if ($space_slot['start'] === $slot_start && $space_slot['end'] === $slot_end) {
+						$space_has_slot = true;
+						$slot_available_in_space = !empty($space_slot['available']);
+						break;
+					}
+				}
+				
+				// If the slot doesn't exist in this space or isn't available, it's not in intersection
+				if (!$space_has_slot || !$slot_available_in_space) {
+					$is_available_in_all = false;
+					break;
 				}
 			}
+			
+			// Only include if available in ALL spaces
+			if ($is_available_in_all) {
+				$common_slots[] = $first_slot; // Use the first space's slot data as the master
+			}
 		}
+		
+		error_log('SB_DEBUG: Common slots after intersection: ' . count($common_slots) . ' from ' . count($available_in_first) . ' available in first space');
 
 		if (count($common_slots) > 0) {
 			foreach ($space_ids as $space_id) {
@@ -261,6 +269,7 @@ final class AvailabilityService
 		$space_ids = array_values($space_ids);
 		error_log('AVAIL DEBUG: get_slots called for space_ids=' . json_encode($space_ids) . ", date=$date");
 
+		// Handle multi-space differently - calculate slots for each space individually
 		$all_results = [];
 		foreach ($space_ids as $space_id) {
 			$fixed = $this->get_fixed_slots([$space_id], $date);
@@ -283,8 +292,14 @@ final class AvailabilityService
 			return $all_results[$space_ids[0]];
 		}
 
+		// For multi-space scenarios, return combined result with individual slots
+		$combined_slots = [];
+		foreach ($all_results as $space_id => $result) {
+			$combined_slots[$space_id] = $result['slots'];
+		}
+
 		return [
-			'slots' => $all_results,
+			'slots' => $combined_slots,
 			'has_fixed_slots' => false,
 			'multi_space' => true
 		];

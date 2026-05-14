@@ -28,27 +28,39 @@ if (!$booking_id) {
 
 global $wpdb;
 $repo = new \SpaceBooking\Services\BookingRepository();
-$booking = $wpdb->get_row($wpdb->prepare(
-    "SELECT b.*, p.post_title as space_title 
-     FROM {$wpdb->prefix}sb_bookings b 
-     LEFT JOIN {$wpdb->posts} p ON p.ID = b.space_id 
-     WHERE b.id = %d",
-    $booking_id
-), ARRAY_A);
+
+// Get enriched booking data (includes all linked spaces, extras, packages)
+$booking = $repo->findEnriched($booking_id);
 
 if (!$booking) {
     wp_die('Booking not found.');
 }
 
-// Fetch extras
-$extras = $wpdb->get_results($wpdb->prepare(
-    "SELECT be.*, p.post_title as extra_name, pm.meta_value as extra_price 
-     FROM {$wpdb->prefix}sb_booking_extras be 
-     JOIN {$wpdb->posts} p ON p.ID = be.extra_id 
-     LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = be.extra_id AND pm.meta_key = '_sb_extra_price' 
-     WHERE be.booking_id = %d",
-    $booking_id
-), ARRAY_A) ?: [];
+// Use data from findEnriched - it already provides:
+// - _selected_items: array of selected spaces/packages
+// - _extras_details: array of extras with details
+// - _price_breakdown: detailed price breakdown from meta
+// - _space_titles: array of space titles
+
+// Get linked spaces from _selected_items (filter for spaces only)
+$linked_spaces = array_filter($booking['_selected_items'] ?? [], function($item) {
+    return ($item['type'] ?? '') === 'sb_space';
+});
+
+// Get linked packages from _selected_items (filter for packages only)
+$linked_packages = array_filter($booking['_selected_items'] ?? [], function($item) {
+    return ($item['type'] ?? '') === 'sb_package';
+});
+
+// Get extras from _extras_details
+$linked_extras = $booking['_extras_details'] ?? [];
+
+// Get price breakdown
+$price_breakdown = $booking['_price_breakdown'] ?? [];
+
+// Get package inclusions from meta
+$package_inclusions = $repo->get_meta($booking_id, '_sb_package_inclusions');
+$inclusions = $package_inclusions ? json_decode($package_inclusions, true) : [];
 
 // Status options
 $statuses = ['pending' => 'Pending', 'in_review' => 'In Review', 'confirmed' => 'Confirmed'];
@@ -238,7 +250,34 @@ $status_color = [
     <div class="sb-section">
         <h3>📅 Booking Details</h3>
         <div class="sb-info-grid">
-            <div><strong>Space:</strong> <?php echo esc_html($booking['space_title']); ?></div>
+            <?php if (!empty($linked_spaces)): ?>
+            <div style="grid-column: 1 / -1;">
+                <strong>Spaces (<?php echo count($linked_spaces); ?>):</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($linked_spaces as $ls): ?>
+                    <li class="sb-extra-item">
+                        <span>📍 <?php echo esc_html($ls['title']); ?></span>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php else: ?>
+            <div><strong>Space:</strong> <?php echo esc_html($booking['space_title'] ?? 'N/A'); ?></div>
+            <?php endif; ?>
+            
+            <?php if (!empty($linked_packages)): ?>
+            <div style="grid-column: 1 / -1;">
+                <strong>📦 Packages (<?php echo count($linked_packages); ?>):</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($linked_packages as $pkg): ?>
+                    <li class="sb-extra-item">
+                        <span>🎁 <?php echo esc_html($pkg['title']); ?></span>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php endif; ?>
+            
             <div><strong>Date:</strong> <?php echo esc_html($booking['booking_date']); ?></div>
             <div><strong>Time:</strong>
                 <?php echo esc_html(sb_format_time_12hour($booking['start_time']) . ' - ' . sb_format_time_12hour($booking['end_time'])); ?>
@@ -248,11 +287,10 @@ $status_color = [
             <div><strong>Email:</strong> <?php echo esc_html($booking['customer_email']); ?></div>
             <?php if ($booking['customer_phone']): ?><div><strong>Phone:</strong>
                 <?php echo esc_html($booking['customer_phone']); ?></div><?php endif; ?>
-            <?php if ($booking['notes']): ?><div><strong>Notes:</strong> <?php echo esc_html($booking['notes']); ?>
+            <?php if ($booking['notes']): ?><div style="grid-column: 1 / -1;"><strong>Notes:</strong> <?php echo esc_html($booking['notes']); ?>
             </div>
             <?php endif; ?>
             <?php
-            $repo = new \SpaceBooking\Services\BookingRepository();
             $marketing = $repo->get_meta($booking_id, '_sb_marketing_source');
             if ($marketing):
                 ?>
@@ -265,6 +303,33 @@ $status_color = [
     <div class="sb-section">
         <h3>💰 Pricing</h3>
         <div class="sb-price-breakdown">
+            <?php if (!empty($inclusions)): ?>
+            <div style="margin-bottom:16px; background:#e8f5e9; padding:12px; border-radius:4px;">
+                <strong>✅ Package Inclusions:</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($inclusions as $inc): ?>
+                    <li class="sb-extra-item">
+                        <span>✓ <?php echo esc_html($inc['name']); ?></span>
+                        <span>Included</span>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($price_breakdown)): ?>
+            <div style="margin-bottom:16px;">
+                <strong>Detailed Breakdown:</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($price_breakdown as $item): ?>
+                    <li class="sb-extra-item">
+                        <span><?php echo esc_html($item['name']); ?></span>
+                        <span>$<?php echo number_format($item['price'], 2); ?></span>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php else: ?>
             <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                 <span>Base: $<?php echo number_format($booking['base_price'], 2); ?></span>
             </div>
@@ -278,19 +343,21 @@ $status_color = [
                 <span>Modifiers: $<?php echo number_format($booking['modifier_price'], 2); ?></span>
             </div>
             <?php endif; ?>
+            <?php endif; ?>
+            
             <div style="border-top:2px solid #2271b1; padding-top:12px; font-weight:bold; font-size:18px;">
                 <span>Total: $<?php echo number_format($booking['total_price'], 2); ?></span>
             </div>
         </div>
     </div>
 
-    <?php if (!empty($extras)): ?>
+    <?php if (!empty($linked_extras)): ?>
     <div class="sb-section">
-        <h3>➕ Extras (<?php echo count($extras); ?>)</h3>
+        <h3>➕ Extras (<?php echo count($linked_extras); ?>)</h3>
         <ul class="sb-extras-list">
-            <?php foreach ($extras as $extra): ?>
+            <?php foreach ($linked_extras as $extra): ?>
             <li class="sb-extra-item">
-                <span><?php echo esc_html($extra['extra_name']); ?> ×<?php echo $extra['quantity']; ?></span>
+                <span>📦 <?php echo esc_html($extra['extra_name']); ?> ×<?php echo $extra['quantity']; ?></span>
                 <span>$<?php echo number_format($extra['quantity'] * $extra['unit_price'], 2); ?></span>
             </li>
             <?php endforeach; ?>
