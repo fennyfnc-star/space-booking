@@ -422,22 +422,34 @@ jQuery(document).ready(function($) {
     form.on('submit', function(e) {
         e.preventDefault();
         const btn = form.find('.btn-primary').prop('disabled', true).text('Saving...');
+        const newStatus = $('#status').val();
         form.addClass('loading');
 
         $.post(ajaxurl, {
             action: 'sb_update_booking_status',
             booking_id: <?php echo $booking_id; ?>,
-            status: $('#status').val(),
+            status: newStatus,
             feedback: $('#feedback').val(),
             _wpnonce: '<?php echo wp_create_nonce('sb_update_booking'); ?>'
         }, function(res) {
             if (res.success) {
-                showToast('✅ Booking updated successfully!', 'success');
+                // Check if email was sent (for confirmed status)
+                if (newStatus === 'confirmed' && res.data.email_sent) {
+                    showToast('✅ Booking confirmed and email sent to customer!', 'success');
+                } else {
+                    showToast('✅ Booking updated successfully!', 'success');
+                }
                 // Update preview to match saved status
                 $('#status').val(res.data.status).trigger('change');
                 $('#feedback').val(res.data.feedback || '');
             } else {
-                showToast('❌ ' + (res.data || 'Update failed'), 'error');
+                // Check for email failure
+                const errorData = res.data;
+                if (errorData && errorData.email_failed) {
+                    showToast('❌ ' + (errorData.message || 'Failed to send confirmation email'), 'error');
+                } else {
+                    showToast('❌ ' + (errorData || 'Update failed'), 'error');
+                }
             }
             btn.prop('disabled', false).text('💾 Update Booking');
             form.removeClass('loading');
