@@ -62,6 +62,60 @@ $price_breakdown = $booking['_price_breakdown'] ?? [];
 $package_inclusions = $repo->get_meta($booking_id, '_sb_package_inclusions');
 $inclusions = $package_inclusions ? json_decode($package_inclusions, true) : [];
 
+// If no inclusions from meta, derive from linked packages
+if (empty($inclusions) && !empty($linked_packages)) {
+    $seen_titles = [];
+    foreach ($linked_packages as $pkg) {
+        $pkg_id = $pkg['id'] ?? 0;
+        if ($pkg_id) {
+            // Get package's included space
+            $pkg_space_id = get_post_meta($pkg_id, '_sb_package_space_id', true);
+            if ($pkg_space_id) {
+                $space_title = get_the_title($pkg_space_id);
+                if (!in_array($space_title, $seen_titles)) {
+                    $seen_titles[] = $space_title;
+                    $inclusions[] = [
+                        'type' => 'sb_space',
+                        'title' => $space_title,
+                        'label' => $space_title . ' (Package Inclusion)'
+                    ];
+                }
+            }
+            // Get package's included extras
+            $pkg_extra_ids = get_post_meta($pkg_id, '_sb_package_extra_ids', true);
+            if (is_array($pkg_extra_ids)) {
+                foreach ($pkg_extra_ids as $item) {
+                    $extra_id = is_array($item) ? (int) ($item['extra_id'] ?? $item['id'] ?? 0) : (int) $item;
+                    if ($extra_id > 0) {
+                        $extra_title = get_the_title($extra_id);
+                        if (!in_array($extra_title, $seen_titles)) {
+                            $seen_titles[] = $extra_title;
+                            $inclusions[] = [
+                                'type' => 'sb_extra',
+                                'title' => $extra_title,
+                                'label' => $extra_title . ' (Package Inclusion)'
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Deduplicate inclusions by title
+if (!empty($inclusions)) {
+    $seen_titles = [];
+    $inclusions = array_values(array_filter($inclusions, function($inc) use (&$seen_titles) {
+        $title = $inc['title'] ?? $inc['name'] ?? '';
+        if (in_array($title, $seen_titles)) {
+            return false;
+        }
+        $seen_titles[] = $title;
+        return true;
+    }));
+}
+
 // Status options
 $statuses = ['pending' => 'Pending', 'in_review' => 'In Review', 'confirmed' => 'Confirmed'];
 $status_color = [
@@ -88,7 +142,7 @@ $status_color = [
 .sb-section h3 {
     margin: 0 0 16px;
     color: #1d2327;
-    border-bottom: 2px solid #2271b1;
+    border-bottom: 2px solid #7A48B0;
     padding-bottom: 8px;
 }
 
@@ -177,12 +231,12 @@ $status_color = [
 }
 
 .btn-primary {
-    background: #2271b1;
+    background: #7A48B0;
     color: #fff;
 }
 
 .btn-primary:hover {
-    background: #135e96;
+    background: #5e3585;
 }
 
 .btn-secondary {
@@ -304,14 +358,17 @@ $status_color = [
         <h3>💰 Pricing</h3>
         <div class="sb-price-breakdown">
             <?php if (!empty($inclusions)): ?>
-            <div style="margin-bottom:16px; background:#e8f5e9; padding:12px; border-radius:4px;">
+            <div style="margin-bottom:16px; background:#f3e8ff; padding:12px; border-radius:4px;">
                 <strong>✅ Package Inclusions:</strong>
                 <ul class="sb-extras-list" style="margin-top:8px;">
                     <?php foreach ($inclusions as $inc): ?>
+                    <?php $inc_name = $inc['name'] ?? $inc['title'] ?? ''; ?>
+                    <?php if (!empty($inc_name)): ?>
                     <li class="sb-extra-item">
-                        <span>✓ <?php echo esc_html($inc['name']); ?></span>
+                        <span>✓ <?php echo esc_html($inc_name); ?></span>
                         <span>Included</span>
                     </li>
+                    <?php endif; ?>
                     <?php endforeach; ?>
                 </ul>
             </div>
@@ -345,7 +402,7 @@ $status_color = [
             <?php endif; ?>
             <?php endif; ?>
             
-            <div style="border-top:2px solid #2271b1; padding-top:12px; font-weight:bold; font-size:18px;">
+            <div style="border-top:2px solid #7A48B0; padding-top:12px; font-weight:bold; font-size:18px; color:#7A48B0;">
                 <span>Total: $<?php echo number_format($booking['total_price'], 2); ?></span>
             </div>
         </div>
@@ -467,3 +524,4 @@ jQuery(document).ready(function($) {
     }
 });
 </script>
+</div>

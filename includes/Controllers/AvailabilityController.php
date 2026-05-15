@@ -44,6 +44,14 @@ final class AvailabilityController extends WP_REST_Controller
 							return array_map('absint', (array) $input);
 						},
 					],
+					'package_ids' => [
+						'required' => false,
+						'type' => 'array',
+						'default' => [],
+						'sanitize_callback' => function ($input) {
+							return array_map('absint', (array) ($input ?: []));
+						},
+					],
 					'date' => [
 						'required' => true,
 						'sanitize_callback' => 'sanitize_text_field',
@@ -91,6 +99,7 @@ final class AvailabilityController extends WP_REST_Controller
 	public function get_multi_availability(WP_REST_Request $request): WP_REST_Response
 	{
 		$space_ids_raw = $request->get_param('space_ids');
+		$package_ids_raw = $request->get_param('package_ids') ?: [];
 		$date = $request->get_param('date');
 		$step_mins = (int) get_option('sb_slot_interval_minutes', 60);
 
@@ -105,10 +114,11 @@ final class AvailabilityController extends WP_REST_Controller
 		}
 
 		$space_ids = array_map('intval', (array) $space_ids_raw);
-		error_log('AVAIL CONTROLLER MULTI: space_ids=' . json_encode($space_ids) . ", date=$date");
+		$package_ids = array_map('intval', (array) ($package_ids_raw ?: []));
+		error_log('AVAIL CONTROLLER MULTI: space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ", date=$date");
 
-		// NEW: Use intersection method for multi-space
-		$result = $this->availability->get_intersection_slots($space_ids, $date, $step_mins);
+		// NEW: Use intersection method for multi-space with package_ids support
+		$result = $this->availability->get_intersection_slots($space_ids, $date, $step_mins, $package_ids);
 
 		$slots = $result['slots'];
 		$blockers = $result['blockers'];

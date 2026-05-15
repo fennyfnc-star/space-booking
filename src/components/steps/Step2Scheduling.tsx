@@ -184,22 +184,26 @@ export function Step2Scheduling() {
     const freshSpaceIds = getLockedResourceIds();
     console.log("PHASE 3 CHECK - Sending Group:", freshSpaceIds);
     console.log("ARRAY-ONLY: Computed freshSpaceIds:", freshSpaceIds);
-    
-    // For packages, we need to resolve to their space_ids
-    // Build list of actual space IDs to check availability
+
+    // FIX BUG 2: Separate spaces from packages
+    // - Only add EXPLICITLY selected spaces to spaceIds
+    // - Packages go to packageIds (backend resolves them)
+    // This prevents false positive where package's included space conflicts with itself
+
+    // NEW: Extract package IDs from selectedItems for conflict detection
+    const packageIds = selectedItems
+      .filter((item) => item.type === "package")
+      .map((item) => Number(item.id));
+
+    // Only add EXPLICITLY selected spaces (not package-covered spaces)
+    // The backend will resolve packages to their included spaces
     let spaceIds: number[] = [];
     for (const item of selectedItems) {
       if (item.type === "space") {
         spaceIds.push(Number(item.id));
-      } else if (item.type === "package") {
-        // Package - get its space_ids
-        const pkg = item as Package;
-        if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
-          spaceIds.push(...pkg.space_ids);
-        } else if (pkg.space_id) {
-          spaceIds.push(pkg.space_id);
-        }
       }
+      // Packages are handled via packageIds - don't add their covered spaces here
+      // This was causing BUG 2: package's included space conflicting with itself
     }
     // Also add any locked resource IDs that aren't package IDs (physical resources)
     for (const id of freshSpaceIds) {
@@ -210,7 +214,7 @@ export function Step2Scheduling() {
     // Dedupe
     spaceIds = [...new Set(spaceIds)];
 
-    console.log("📍 Resolved spaceIds for availability:", spaceIds);
+    console.log("📍 Resolved spaceIds for availability:", spaceIds, "packageIds:", packageIds);
 
     // Debug: log what each space has booked
     if (spaceIds.length > 0) {
@@ -238,7 +242,8 @@ export function Step2Scheduling() {
     setBlockers([]);
 
     // Always use multi-space endpoint - works for single or multiple spaces
-    fetchMultiAvailability(spaceIds, selectedDate)
+    // UPDATED: Now passes packageIds for package-space conflict detection
+    fetchMultiAvailability(spaceIds, selectedDate, packageIds)
       .then((res) => {
         console.log("AVAILABILITY RES:", res);
         console.log("slots:", res.slots);

@@ -21,7 +21,7 @@ $table = $wpdb->prefix . 'sb_bookings';
 $extras_table = $wpdb->prefix . 'sb_booking_extras';
 $repo = new \SpaceBooking\Services\BookingRepository();
 
-$test_date = '2026-07-01';
+$test_date = date('Y-m-d', strtotime('+1 day'));
 
 // ============================================================
 // TEST 1: Booking WITHOUT extras returns empty extras

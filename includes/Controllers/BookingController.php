@@ -232,9 +232,11 @@ final class BookingController extends WP_REST_Controller
 					if (!empty($item['breakdown'])) {
 						foreach ($item['breakdown'] as $bd) {
 							if (isset($bd['amount']) && $bd['amount'] == 0 && strpos($bd['label'] ?? '', '(Package Inclusion)') !== false) {
+								// Extract actual item name from label (remove " (Package Inclusion)" suffix)
+								$included_title = str_replace(' (Package Inclusion)', '', $bd['label']);
 								$inclusions[] = [
 									'type' => $item['type'],
-									'title' => $item['title'],
+									'title' => $included_title,
 									'label' => $bd['label']
 								];
 							}

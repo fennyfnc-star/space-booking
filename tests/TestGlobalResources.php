@@ -16,7 +16,12 @@
  */
 
 // Bootstrap WordPress
-define('ABSPATH', 'C:/xampp/htdocs/kukoolala/');
+$abspath = dirname(__DIR__, 4);
+if (file_exists($abspath . '/wp-load.php')) {
+    define('ABSPATH', $abspath . '/');
+} else {
+    define('ABSPATH', dirname(__DIR__, 3) . '/');
+}
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
@@ -77,6 +82,26 @@ function cleanup_test_bookings(int $space_id, string $date): void
 {
     global $wpdb;
     $table = $wpdb->prefix . 'sb_bookings';
+    $spaces_table = $wpdb->prefix . 'sb_booking_spaces';
+    $extras_table = $wpdb->prefix . 'sb_booking_extras';
+
+    // Get all booking IDs for this space and date (including linked spaces)
+    $booking_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT b.id FROM $table b
+         LEFT JOIN $spaces_table bs ON b.id = bs.booking_id
+         WHERE (b.space_id = %d OR bs.space_id = %d)
+         AND b.booking_date = %s",
+        $space_id, $space_id, $date
+    ));
+
+    // Delete extras first
+    if (!empty($booking_ids)) {
+        $ids = implode(',', array_map('intval', $booking_ids));
+        $wpdb->query("DELETE FROM $extras_table WHERE booking_id IN ($ids)");
+        $wpdb->query("DELETE FROM $spaces_table WHERE booking_id IN ($ids)");
+    }
+
+    // Delete bookings
     $wpdb->query($wpdb->prepare(
         "DELETE FROM $table WHERE space_id = %d AND booking_date = %s",
         $space_id, $date

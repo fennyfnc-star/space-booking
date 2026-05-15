@@ -12,7 +12,12 @@
  */
 
 // Bootstrap WordPress
-define('ABSPATH', 'C:/xampp/htdocs/kukoolala/');
+$abspath = dirname(__DIR__, 4);
+if (file_exists($abspath . '/wp-load.php')) {
+    define('ABSPATH', $abspath . '/');
+} else {
+    define('ABSPATH', dirname(__DIR__, 3) . '/');
+}
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
@@ -60,14 +65,26 @@ function cleanup_all(int $space_a, int $space_b, int $resource): void
 {
     global $wpdb;
     $table = $wpdb->prefix . 'sb_bookings';
+    $spaces_table = $wpdb->prefix . 'sb_booking_spaces';
     $extras_table = $wpdb->prefix . 'sb_booking_extras';
 
-    // Delete bookings for spaces
-    $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE space_id IN (%d, %d)", $space_a, $space_b));
-    // Delete bookings for global resource (stored in space_id column)
-    $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE space_id = %d", $resource));
-    // Delete extras
-    $wpdb->query($wpdb->prepare("DELETE FROM $extras_table WHERE extra_id = %d", $resource));
+    // Get all booking IDs for these spaces (including linked spaces)
+    $booking_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT b.id FROM $table b
+         LEFT JOIN $spaces_table bs ON b.id = bs.booking_id
+         WHERE b.space_id IN (%d, %d, %d) OR bs.space_id IN (%d, %d, %d)",
+        $space_a, $space_b, $resource, $space_a, $space_b, $resource
+    ));
+
+    // Delete extras first
+    if (!empty($booking_ids)) {
+        $ids = implode(',', array_map('intval', $booking_ids));
+        $wpdb->query("DELETE FROM $extras_table WHERE booking_id IN ($ids)");
+        $wpdb->query("DELETE FROM $spaces_table WHERE booking_id IN ($ids)");
+    }
+
+    // Delete bookings for spaces and resource
+    $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE space_id IN (%d, %d, %d)", $space_a, $space_b, $resource));
 
     wp_delete_post($space_a, true);
     wp_delete_post($space_b, true);

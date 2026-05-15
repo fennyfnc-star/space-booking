@@ -22,7 +22,7 @@ $table = $wpdb->prefix . 'sb_bookings';
 $repo = new \SpaceBooking\Services\BookingRepository();
 $availability = new \SpaceBooking\Services\AvailabilityService($repo);
 
-$test_date = '2026-05-16';
+$test_date = date('Y-m-d', strtotime('+1 day'));
 
 // Use spaces that are known to work with testing
 $space_1 = 223;
@@ -33,7 +33,28 @@ $test_spaces = [$space_1, $space_2, $space_3];
 // Cleanup function
 function cleanup_test_bookings(string $date, int $s1, int $s2, int $s3): void
 {
-    global $wpdb, $table;
+    global $wpdb;
+    $table = $wpdb->prefix . 'sb_bookings';
+    $spaces_table = $wpdb->prefix . 'sb_booking_spaces';
+    $extras_table = $wpdb->prefix . 'sb_booking_extras';
+
+    // Get all booking IDs for these spaces (including linked spaces)
+    $booking_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT b.id FROM $table b
+         LEFT JOIN $spaces_table bs ON b.id = bs.booking_id
+         WHERE (b.space_id IN (%d, %d, %d) OR bs.space_id IN (%d, %d, %d))
+         AND b.booking_date = %s",
+        $s1, $s2, $s3, $s1, $s2, $s3, $date
+    ));
+
+    // Delete extras first
+    if (!empty($booking_ids)) {
+        $ids = implode(',', array_map('intval', $booking_ids));
+        $wpdb->query("DELETE FROM $extras_table WHERE booking_id IN ($ids)");
+        $wpdb->query("DELETE FROM $spaces_table WHERE booking_id IN ($ids)");
+    }
+
+    // Delete bookings
     $wpdb->query($wpdb->prepare(
         "DELETE FROM $table WHERE booking_date = %s AND space_id IN (%d, %d, %d)",
         $date, $s1, $s2, $s3

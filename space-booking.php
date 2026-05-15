@@ -61,6 +61,10 @@ if (is_admin()) {
 	require_once SB_DIR . 'includes/Admin/ajax-handlers.php';
 }
 
+// ── Remove WordPress admin footer text ───────────────────────────
+add_filter('admin_footer_text', '__return_empty_string');
+add_filter('update_footer', '__return_empty_string');
+
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 add_action('plugins_loaded', static function (): void {
 	\SpaceBooking\Plugin::instance()->boot();

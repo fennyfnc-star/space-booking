@@ -50,11 +50,18 @@ export const fetchAvailability = (primarySpaceId: number, date: string) =>
 
 // NEW: Multi-space availability with intersection check
 // PHASE 3: Add debug log to verify full resource group is sent
-export const fetchMultiAvailability = (spaceIds: number[], date: string) => {
-  console.log("PHASE 3 CHECK - Sending Group:", spaceIds);
+// UPDATED: Now accepts package_ids for package-space conflict detection
+export const fetchMultiAvailability = (
+  spaceIds: number[],
+  date: string,
+  packageIds: number[] = []
+) => {
+  console.log("PHASE 3 CHECK - Sending Group:", spaceIds, "packageIds:", packageIds);
   const qs = new URLSearchParams();
   qs.set("date", date);
   spaceIds.forEach((id) => qs.append("space_ids[]", String(id)));
+  // NEW: Pass package_ids for conflict detection
+  packageIds.forEach((id) => qs.append("package_ids[]", String(id)));
   return apiFetch<AvailabilityResponse>(`/availability/multi?${qs.toString()}`);
 };
 
