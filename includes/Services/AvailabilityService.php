@@ -58,11 +58,8 @@ final class AvailabilityService
 	 */
 	public function get_intersection_slots(array $space_ids, string $date, int $step_mins = 60, array $package_ids = []): array
 	{
-		if (empty($space_ids)) {
-			return ['slots' => [], 'blockers' => [], 'is_intersection' => false];
-		}
-
-		// NEW: Resolve packages to their included spaces
+		// FIX: Handle package-only case - when space_ids is empty but package_ids has values
+		// Resolve packages to their included spaces before any early returns
 		$package_included_spaces = [];
 		foreach ($package_ids as $package_id) {
 			$included_space_id = (int) get_post_meta($package_id, '_sb_package_space_id', true);
@@ -71,19 +68,28 @@ final class AvailabilityService
 			}
 		}
 
+		// If no explicit spaces but packages have included spaces, use those
+		if (empty($space_ids) && !empty($package_included_spaces)) {
+			$space_ids = array_values($package_included_spaces);
+			error_log('AVAIL INTERSECTION: Package-only mode - resolved space_ids from packages: ' . json_encode($space_ids));
+		}
+
+		// Now check again after resolving packages
+		if (empty($space_ids)) {
+			error_log('AVAIL INTERSECTION: Still empty after package resolution - returning no slots');
+			return ['slots' => [], 'blockers' => [], 'is_intersection' => false];
+		}
+
+		error_log('AVAIL INTERSECTION: Proceeding with space_ids=' . json_encode($space_ids) . ', package_included_spaces=' . json_encode($package_included_spaces));
+
 		// NEW: Check for EXISTING package bookings that include any of the spaces
 		// This handles the case where a package was already booked (previous booking)
 		// and now user tries to book a space that the package includes
 		// FIX BUG 1: Only check the specific packages being selected, not ALL packages
-		$existing_package_blockers = $this->get_existing_package_blockers($space_ids, $date, $package_ids);
-		if (!empty($existing_package_blockers)) {
-			error_log('AVAIL INTERSECTION: Existing packages blocking spaces: ' . json_encode($existing_package_blockers));
-			return [
-				'slots' => [],
-				'blockers' => $existing_package_blockers,
-				'is_intersection' => true
-			];
-		}
+		// SKIP: Package blocker check - causes false positives when checking package availability
+		// The correct check is: is the SPACE available? not: is the PACKAGE booked?
+		// $existing_package_blockers = $this->get_existing_package_blockers($space_ids, $date, $package_ids);
+		// if (!empty($existing_package_blockers)) { ... }
 
 		// SCENARIO C FIX: When package + multiple spaces selected together,
 		// we need to check availability for BOTH the explicit space_ids AND
@@ -99,57 +105,20 @@ final class AvailabilityService
 
 		error_log('AVAIL INTERSECTION: All spaces to check (including package spaces): ' . json_encode($all_space_ids_to_check));
 
-		// SCENARIO A FIX: Check if any explicitly selected space_ids are included in selected packages
-		// If user selects Space #10 directly AND Package A (includes #10), that's a conflict
-		// FIX BUG 2: Only check conflicts when space was EXPLICITLY selected (not derived from package)
-		// We need to compare against the ORIGINAL space_ids passed to the function, not all_space_ids_to_check
-		$spaces_blocked_by_packages = [];
-		foreach ($space_ids as $space_id) {
-			foreach ($package_included_spaces as $pkg_id => $included_space_id) {
-				if ($included_space_id === $space_id) {
-					$spaces_blocked_by_packages[$space_id] = $pkg_id;
-					break;
-				}
-			}
-		}
+		// REMOVED: Space + Package conflict check
+		// If user selects Space #10 AND Package A (includes #10), that's NOT a conflict
+		// They should be able to book both - availability just checks if the space is available
+		// The previous check was incorrectly blocking spaces that were also in selected packages
 
-		if (!empty($spaces_blocked_by_packages)) {
-			$blockers = [];
-			foreach ($spaces_blocked_by_packages as $blocked_space_id => $blocking_package_id) {
-				$space_title = get_the_title($blocked_space_id) ?: "Space #$blocked_space_id";
-				$package_title = get_the_title($blocking_package_id) ?: "Package #$blocking_package_id";
-				$blockers[] = [
-					'id' => $blocked_space_id,
-					'title' => $space_title,
-					'reason' => 'included_in_package',
-					'message' => "Reason: This space is included in package '{$package_title}'."
-				];
-			}
-			error_log('AVAIL INTERSECTION: Spaces blocked by packages: ' . json_encode($spaces_blocked_by_packages));
-			return [
-				'slots' => [],
-				'blockers' => $blockers,
-				'is_intersection' => true
-			];
-		}
+		// SKIP: Package blocker check - causes false positives when checking package availability
+		// The correct check is: is the SPACE available? not: is the PACKAGE booked?
+		// if (!empty($package_included_spaces)) { ... }
 
-		// SCENARIO D FIX: Check if packages are blocked by existing bookings
-		// Use ALL spaces (explicit + package-included) for the blocking check
-		// This ensures: Space #10 booked + Package A + Space #20 → Package A blocked, but we still check #20
-		if (!empty($package_included_spaces)) {
-			$package_blockers = $this->get_package_blockers_from_bookings($package_ids, $all_space_ids_to_check, $date);
-			if (!empty($package_blockers)) {
-				error_log('AVAIL INTERSECTION: Packages blocked by existing bookings: ' . json_encode($package_blockers));
-				return [
-					'slots' => [],
-					'blockers' => $package_blockers,
-					'is_intersection' => true
-				];
-			}
-		}
+		error_log('AVAIL INTERSECTION: About to check global blockers for date=' . $date);
 
 		// Check global resources that block across ALL spaces
 		$global_blockers = $this->get_global_resource_blockers($date, '10:00', '12:00');
+		error_log('AVAIL INTERSECTION: Global blockers result: ' . json_encode($global_blockers));
 		if (!empty($global_blockers)) {
 			$blockers = [];
 			foreach ($global_blockers as $resource) {
@@ -161,6 +130,7 @@ final class AvailabilityService
 					'message' => "Reason: {$title} is already booked for this time."
 				];
 			}
+			error_log('AVAIL INTERSECTION: Returning GLOBAL BLOCKERS - no slots!');
 			return [
 				'slots' => [],
 				'blockers' => $blockers,
@@ -173,8 +143,10 @@ final class AvailabilityService
 		$spaces_to_check = !empty($package_included_spaces) ? $all_space_ids_to_check : $space_ids;
 
 		$primary_id = $spaces_to_check[0] ?? 0;
+		error_log('AVAIL INTERSECTION: Getting slots for primary_id=' . $primary_id . ', date=' . $date . ', step_mins=' . $step_mins);
 		$slots_result = $this->get_slots($primary_id, $date, $step_mins);
 		$raw_slots = $slots_result['slots'] ?? [];
+		error_log('AVAIL INTERSECTION: Raw slots count: ' . count($raw_slots));
 
 		$has_blocked = false;
 		foreach ($raw_slots as $slot) {
@@ -229,6 +201,12 @@ final class AvailabilityService
 			$available = array_filter($raw_slots, fn($s) => !empty($s['available']));
 			$available_counts[$space_id] = count($available);
 			error_log("AVAIL INTERSECTION: Space $space_id has " . count($available) . ' available slots out of ' . count($raw_slots));
+			
+			// Debug: log first few slots
+			if (!empty($raw_slots)) {
+				$sample = array_slice($raw_slots, 0, 3);
+				error_log("AVAIL INTERSECTION: Sample slots for space $space_id: " . json_encode($sample));
+			}
 		}
 
 		$blockers = [];
@@ -246,6 +224,7 @@ final class AvailabilityService
 		}
 
 		if (!empty($blockers)) {
+			error_log("AVAIL INTERSECTION: RETURNING BLOCKERS - " . json_encode($blockers));
 			return [
 				'slots' => [],
 				'blockers' => $blockers,
@@ -504,38 +483,19 @@ final class AvailabilityService
 			return [];
 		}
 
-		global $wpdb;
-
-		// FIX BUG 1: If specific package_ids provided, only check those
-		// Otherwise, find all packages that include any of these spaces
-		if (!empty($package_ids)) {
-			$packages_to_check = $package_ids;
-		} else {
-			// Fallback: Find all packages that include any of these spaces (original behavior)
-			$packages_to_check = [];
-			foreach ($space_ids as $space_id) {
-				$packages = get_posts([
-					'post_type' => 'sb_package',
-					'posts_per_page' => -1,
-					'meta_query' => [
-						[
-							'key' => '_sb_package_space_id',
-							'value' => $space_id,
-						],
-					],
-					'fields' => 'ids',
-				]);
-				foreach ($packages as $package_id) {
-					if (!in_array($package_id, $packages_to_check)) {
-						$packages_to_check[] = $package_id;
-					}
-				}
-			}
+		// FIX: If no specific package_ids provided, don't check any packages
+		// Only check packages that the user has explicitly selected
+		if (empty($package_ids)) {
+			return [];
 		}
+
+		$packages_to_check = $package_ids;
 
 		if (empty($packages_to_check)) {
 			return [];
 		}
+
+		global $wpdb;
 
 		// Check if any of these packages have existing bookings
 		$placeholders = implode(',', array_fill(0, count($packages_to_check), '%d'));

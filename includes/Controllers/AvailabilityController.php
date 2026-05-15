@@ -38,10 +38,11 @@ final class AvailabilityController extends WP_REST_Controller
 				'permission_callback' => '__return_true',
 				'args' => [
 					'space_ids' => [
-						'required' => true,
+						'required' => false,  // FIX: Allow package-only (no explicit spaces)
 						'type' => 'array',
+						'default' => [],
 						'sanitize_callback' => function ($input) {
-							return array_map('absint', (array) $input);
+							return array_map('absint', (array) ($input ?: []));
 						},
 					],
 					'package_ids' => [
@@ -99,12 +100,29 @@ final class AvailabilityController extends WP_REST_Controller
 	public function get_multi_availability(WP_REST_Request $request): WP_REST_Response
 	{
 		$space_ids_raw = $request->get_param('space_ids');
-		$package_ids_raw = $request->get_param('package_ids') ?: [];
+		$package_ids_raw = $request->get_param('package_ids');
 		$date = $request->get_param('date');
 		$step_mins = (int) get_option('sb_slot_interval_minutes', 60);
 
-		// Validate all spaces exist
-		foreach ((array) $space_ids_raw as $space_id) {
+		// DEBUG: Log raw input
+		error_log('AVAIL CONTROLLER: RAW space_ids=' . json_encode($space_ids_raw) . ', package_ids=' . json_encode($package_ids_raw));
+
+		// Handle both array and scalar inputs
+		// Handle both array and single value inputs
+		$space_ids = [];
+		if ($space_ids_raw) {
+			$space_ids = is_array($space_ids_raw) ? array_map('intval', $space_ids_raw) : [intval($space_ids_raw)];
+		}
+		
+		$package_ids = [];
+		if ($package_ids_raw) {
+			$package_ids = is_array($package_ids_raw) ? array_map('intval', $package_ids_raw) : [intval($package_ids_raw)];
+		}
+
+		error_log('AVAIL CONTROLLER: FINAL space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ", date=$date");
+
+		// Validate spaces only if we have space_ids (not for package-only)
+		foreach ($space_ids as $space_id) {
 			$post = get_post($space_id);
 			if (!$post || $post->post_type !== 'sb_space') {
 				return new WP_REST_Response([
@@ -113,8 +131,6 @@ final class AvailabilityController extends WP_REST_Controller
 			}
 		}
 
-		$space_ids = array_map('intval', (array) $space_ids_raw);
-		$package_ids = array_map('intval', (array) ($package_ids_raw ?: []));
 		error_log('AVAIL CONTROLLER MULTI: space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ", date=$date");
 
 		// NEW: Use intersection method for multi-space with package_ids support

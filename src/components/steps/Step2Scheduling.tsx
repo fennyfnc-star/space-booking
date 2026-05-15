@@ -195,6 +195,11 @@ export function Step2Scheduling() {
       .filter((item) => item.type === "package")
       .map((item) => Number(item.id));
 
+    console.log("DEBUG selectedItems:", selectedItems.map(i => ({id: i.id, type: i.type, title: i.title})));
+    console.log("DEBUG freshSpaceIds:", freshSpaceIds);
+    console.log("DEBUG resourceMap types:", freshSpaceIds.map(id => ({id, type: resourceMap?.[id]?.type})));
+    console.log("DEBUG packageIds (raw):", packageIds);
+
     // Only add EXPLICITLY selected spaces (not package-covered spaces)
     // The backend will resolve packages to their included spaces
     let spaceIds: number[] = [];
@@ -205,10 +210,18 @@ export function Step2Scheduling() {
       // Packages are handled via packageIds - don't add their covered spaces here
       // This was causing BUG 2: package's included space conflicting with itself
     }
-    // Also add any locked resource IDs that aren't package IDs (physical resources)
+    // Also add any locked resource IDs that aren't already selected (physical resources)
+    // BUT: Only add if they're SPACE IDs, not package IDs
     for (const id of freshSpaceIds) {
-      if (!selectedItems.some(i => Number(i.id) === id)) {
-        spaceIds.push(id);
+      const isSelected = selectedItems.some(i => Number(i.id) === id);
+      const isPackage = selectedItems.some(i => i.type === "package" && Number(i.id) === id);
+      if (!isSelected && !isPackage) {
+        // Only add if it's a space (check via resourceMap type)
+        const itemType = resourceMap?.[id]?.type;
+        if (itemType === "space") {
+          spaceIds.push(id);
+        }
+        // Skip packages - they're handled separately via packageIds
       }
     }
     // Dedupe
@@ -221,8 +234,10 @@ export function Step2Scheduling() {
       console.log("DEBUG: Checking availability for spaces:", spaceIds);
     }
 
-    if (!selectedDate || spaceIds.length === 0) {
-      // No spaces selected yet
+    // FIX: Allow API call when packages are selected (even without explicit spaces)
+    // Package-only bookings should resolve to their included space
+    if (!selectedDate || (spaceIds.length === 0 && packageIds.length === 0)) {
+      // No spaces or packages selected yet
       setSlots([]);
       setApiResponse(null);
       return;

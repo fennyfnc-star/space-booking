@@ -56,13 +56,15 @@ export const fetchMultiAvailability = (
   date: string,
   packageIds: number[] = []
 ) => {
-  console.log("PHASE 3 CHECK - Sending Group:", spaceIds, "packageIds:", packageIds);
+  console.log("📡 API fetchMultiAvailability - spaceIds:", spaceIds, "packageIds:", packageIds, "date:", date);
   const qs = new URLSearchParams();
   qs.set("date", date);
   spaceIds.forEach((id) => qs.append("space_ids[]", String(id)));
   // NEW: Pass package_ids for conflict detection
   packageIds.forEach((id) => qs.append("package_ids[]", String(id)));
-  return apiFetch<AvailabilityResponse>(`/availability/multi?${qs.toString()}`);
+  const url = `/availability/multi?${qs.toString()}`;
+  console.log("📡 API URL:", url);
+  return apiFetch<AvailabilityResponse>(url);
 };
 
 // ── Extras ────────────────────────────────────────────────────────────────────
