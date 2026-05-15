@@ -119,13 +119,9 @@ trait HasFixedSlots
     {
         $repo = $this->getRepository();
 
-        // Get confirmed/in_review/paid bookings blocking this space
+        // CONSOLIDATED: get_blocking_intervals already includes confirmed + pending (non-expired)
         $blocked = $repo->get_blocking_intervals([$space_id], $date);
         error_log('SB_DEBUG: get_fixed_slots_single blocking for space ' . $space_id . ': ' . count($blocked));
-
-        // Get pending (non-expired) bookings to detect slots being booked now
-        $pending_intervals = $repo->get_pending_intervals_for_spaces([$space_id], $date);
-        error_log('SB_DEBUG: get_fixed_slots_single pending for space ' . $space_id . ': ' . count($pending_intervals));
 
         $date_overrides = get_post_meta($space_id, '_sb_date_overrides', true);
         if (is_array($date_overrides) && isset($date_overrides[$date])) {
@@ -156,18 +152,14 @@ trait HasFixedSlots
             $slot_start = $this->add_minutes($slot_data['start_time'], -$pre_buf);
             $slot_end = $this->add_minutes($slot_data['end_time'], $post_buf);
 
-            // Check if there's a pending booking in this slot first
-            $has_pending = $this->overlaps($slot_start, $slot_end, $pending_intervals);
-
-            // Slot is available if not blocked by confirmed/in_review/paid AND not pending
-            $is_available = !$this->overlaps($slot_start, $slot_end, $blocked) && !$has_pending;
+            // CONSOLIDATED: $blocked already includes pending (non-expired), so just check blocking
+            $is_available = !$this->overlaps($slot_start, $slot_end, $blocked);
 
             $slots[] = [
                 'slot_id' => $slot_data['slot_id'],
                 'start' => $slot_data['start_time'],
                 'end' => $slot_data['end_time'],
                 'available' => $is_available,
-                'has_pending' => $has_pending,
                 'override_price' => $slot_data['override_price'],
                 'pre_buffer' => $pre_buf,
                 'post_buffer' => $post_buf,

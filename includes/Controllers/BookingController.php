@@ -132,21 +132,12 @@ final class BookingController extends WP_REST_Controller
 
 		// ── Guard: time window still available (check ALL selected spaces) ──
 		// FIXED: Use selected_item_ids directly instead of get_conflict_groups()
-		// This ensures we check availability for ALL selected spaces, not just those with resource dependencies.
+		// CONSOLIDATED: Use single get_blocking_intervals() call instead of dual confirmed + pending
 		$footprint_spaces = $selected_item_ids;
-		$booked = $this->repo->get_confirmed_intervals_for_spaces($footprint_spaces, $date);
-		foreach ($booked as $b) {
+		$blocking = $this->repo->get_blocking_intervals($footprint_spaces, $date);
+		foreach ($blocking as $b) {
 			if ($start_time < $b['end'] && $end_time > $b['start']) {
 				return new WP_REST_Response(['message' => 'Selected time is no longer available for one or more spaces.'], 409);
-			}
-		}
-
-		// Guard: Also check PENDING bookings to prevent double booking
-		$pending = $this->repo->get_pending_intervals_for_spaces($footprint_spaces, $date);
-		error_log('SB_DEBUG: BookingController pending check count: ' . count($pending));
-		foreach ($pending as $p) {
-			if ($start_time < $p['end'] && $end_time > $p['start']) {
-				return new WP_REST_Response(['message' => 'This time slot is currently being booked by another customer. Please choose a different time.'], 409);
 			}
 		}
 

@@ -83,13 +83,9 @@ trait HasDynamicSlots
     {
         $repo = $this->getRepository();
 
-        // Get blocking for confirmed/in_review/paid bookings
+        // CONSOLIDATED: get_blocking_intervals already includes confirmed + pending (non-expired)
         $blocked = $repo->get_blocking_intervals([$space_id], $date);
         error_log('SB_DEBUG: generate_dynamic_slots_single blocking for space ' . $space_id . ': ' . count($blocked));
-
-        // NEW: Get pending (non-expired) bookings to detect slots being booked NOW
-        $pending_intervals = $repo->get_pending_intervals_for_spaces([$space_id], $date);
-        error_log('SB_DEBUG: generate_dynamic_slots_single pending for space ' . $space_id . ': ' . count($pending_intervals));
 
         [$open, $close] = $this->resolve_effective_hours($space_id, $date);
         error_log("AVAIL DEBUG: dynamic effective open=$open, close=$close");
