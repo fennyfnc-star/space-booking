@@ -102,35 +102,21 @@ class BookingRepository
 			count($valid_extras)
 		));
 
-		// Include price breakdown if available
+		// SINGLE SOURCE: Only use _sb_price_breakdown for price breakdown
+		// FIX: Removed _price_breakdown_enriched and display_extras to prevent price drift
 		$price_breakdown = $this->get_meta($id, '_sb_price_breakdown');
 		if ($price_breakdown) {
 			$booking['_price_breakdown'] = json_decode($price_breakdown, true);
-			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items', count($booking['_price_breakdown'])));
+			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items (SINGLE SOURCE)', count($booking['_price_breakdown'])));
 		}
 
-		// Include enriched price breakdown if available (THIS IS LIKELY THE SOURCE OF INACCURATE EXTRAS)
-		$price_breakdown_enriched = $this->get_meta($id, '_sb_price_breakdown_enriched');
-		if ($price_breakdown_enriched) {
-			$decoded = json_decode($price_breakdown_enriched, true);
-			if ($decoded) {
-				$booking['_price_breakdown_enriched'] = $decoded;
-				$extra_items = array_filter($decoded, function ($item) {
-					return isset($item['type']) && $item['type'] === 'extra';
-				});
-				error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown_enriched found with %d EXTRA items (THIS IS LIKELY WRONG SOURCE)', count($extra_items)));
-				$booking['display_extras'] = $extra_items;
-			}
-		}
-
-		// DEBUG: Log what's being returned
+		// DEBUG: Log what's being returned (updated - removed display_extras)
 		error_log(sprintf(
-			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _extras_details=%s, display_extras=%s',
+			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _price_breakdown=%s',
 			$id,
 			json_encode($booking['extras'] ?? []),
 			json_encode($booking['_extras'] ?? []),
-			json_encode($booking['_extras_details'] ?? []),
-			json_encode($booking['display_extras'] ?? [])
+			json_encode($booking['_price_breakdown'] ?? [])
 		));
 
 		return $booking;

@@ -28,20 +28,21 @@ final class CartController extends WP_REST_Controller
 
     public function has_cart_booking(WP_REST_Request $request): WP_REST_Response
     {
-        if (!function_exists('WC') || !WC() || !WC()->cart) {
+        if (!function_exists('WC') || !WC()) {
             return new WP_REST_Response(['hasCartBooking' => false], 200);
         }
 
-        $cart = WC()->cart->get_cart();
-        $hasBooking = false;
+        // FIX: Check session first (reliable), then fallback to cart items
+        $wc_service = new \SpaceBooking\Services\WooCommerceService();
+        $booking_id = $wc_service->get_booking_id_from_session();
 
-        foreach ($cart as $cart_item_key => $cart_item) {
-            if (isset($cart_item['sb_booking_id'])) {
-                $hasBooking = true;
-                break;
-            }
+        if ($booking_id) {
+            return new WP_REST_Response([
+                'hasCartBooking' => true,
+                'bookingId' => $booking_id
+            ], 200);
         }
 
-        return new WP_REST_Response(['hasCartBooking' => $hasBooking], 200);
+        return new WP_REST_Response(['hasCartBooking' => false], 200);
     }
 }

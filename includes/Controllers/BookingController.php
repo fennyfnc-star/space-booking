@@ -191,10 +191,12 @@ final class BookingController extends WP_REST_Controller
 			$frontend_sum += (float) ($item['amount'] ?? 0);
 		}
 		$calculated_total = $price['total_price'];
-		if (abs($frontend_sum - $calculated_total) > 0.01) {
+		// FIX: Use 1% percentage tolerance instead of fixed 0.01
+		$tolerance = max(0.01, $calculated_total * 0.01);
+		if (abs($frontend_sum - $calculated_total) > $tolerance) {
 			error_log(sprintf(
-				'SpaceBooking: Frontend breakdown mismatch: frontend=%.2f vs backend=%.2f',
-				$frontend_sum, $calculated_total
+				'SpaceBooking: Frontend breakdown mismatch: frontend=%.2f vs backend=%.2f, tolerance=%.2f',
+				$frontend_sum, $calculated_total, $tolerance
 			));
 			$frontend_breakdown = [];  // Fallback to raw
 		}
