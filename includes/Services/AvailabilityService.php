@@ -58,61 +58,17 @@ final class AvailabilityService
 	 */
 	public function get_intersection_slots(array $space_ids, string $date, int $step_mins = 60, array $package_ids = []): array
 	{
-		// FIX: Handle package-only case - when space_ids is empty but package_ids has values
-		// Resolve packages to their included spaces before any early returns
-		$package_included_spaces = [];
-		foreach ($package_ids as $package_id) {
-			$included_space_id = (int) get_post_meta($package_id, '_sb_package_space_id', true);
-			if ($included_space_id) {
-				$package_included_spaces[$package_id] = $included_space_id;
-			}
-		}
+		// Frontend sends complete space_ids - just use it directly
+		// package_ids kept for backward compatibility but not used for resolution
+		$all_space_ids_to_check = array_unique($space_ids);
 
-		// If no explicit spaces but packages have included spaces, use those
-		if (empty($space_ids) && !empty($package_included_spaces)) {
-			$space_ids = array_values($package_included_spaces);
-			error_log('AVAIL INTERSECTION: Package-only mode - resolved space_ids from packages: ' . json_encode($space_ids));
-		}
-
-		// Now check again after resolving packages
-		if (empty($space_ids)) {
-			error_log('AVAIL INTERSECTION: Still empty after package resolution - returning no slots');
+		// Early return if no spaces to check
+		if (empty($all_space_ids_to_check)) {
+			error_log('AVAIL INTERSECTION: No spaces to check - returning no slots');
 			return ['slots' => [], 'blockers' => [], 'is_intersection' => false];
 		}
 
-		error_log('AVAIL INTERSECTION: Proceeding with space_ids=' . json_encode($space_ids) . ', package_included_spaces=' . json_encode($package_included_spaces));
-
-		// NEW: Check for EXISTING package bookings that include any of the spaces
-		// This handles the case where a package was already booked (previous booking)
-		// and now user tries to book a space that the package includes
-		// FIX BUG 1: Only check the specific packages being selected, not ALL packages
-		// SKIP: Package blocker check - causes false positives when checking package availability
-		// The correct check is: is the SPACE available? not: is the PACKAGE booked?
-		// $existing_package_blockers = $this->get_existing_package_blockers($space_ids, $date, $package_ids);
-		// if (!empty($existing_package_blockers)) { ... }
-
-		// SCENARIO C FIX: When package + multiple spaces selected together,
-		// we need to check availability for BOTH the explicit space_ids AND
-		// the spaces covered by packages. The intersection should include ALL spaces.
-		// This ensures Package A (Space #10) + Space #20 checks availability for BOTH #10 and #20.
-		$all_space_ids_to_check = $space_ids;
-		foreach ($package_included_spaces as $included_space_id) {
-			if (!in_array($included_space_id, $all_space_ids_to_check)) {
-				$all_space_ids_to_check[] = $included_space_id;
-			}
-		}
-		$all_space_ids_to_check = array_unique($all_space_ids_to_check);
-
-		error_log('AVAIL INTERSECTION: All spaces to check (including package spaces): ' . json_encode($all_space_ids_to_check));
-
-		// REMOVED: Space + Package conflict check
-		// If user selects Space #10 AND Package A (includes #10), that's NOT a conflict
-		// They should be able to book both - availability just checks if the space is available
-		// The previous check was incorrectly blocking spaces that were also in selected packages
-
-		// SKIP: Package blocker check - causes false positives when checking package availability
-		// The correct check is: is the SPACE available? not: is the PACKAGE booked?
-		// if (!empty($package_included_spaces)) { ... }
+		error_log('AVAIL INTERSECTION: All spaces to check: ' . json_encode($all_space_ids_to_check));
 
 		error_log('AVAIL INTERSECTION: About to check global blockers for date=' . $date);
 
@@ -138,11 +94,8 @@ final class AvailabilityService
 			];
 		}
 
-		// SCENARIO C: Use all_space_ids_to_check when packages are involved
-		// This ensures Package A (Space #10) + Space #20 checks intersection of BOTH spaces
-		$spaces_to_check = !empty($package_included_spaces) ? $all_space_ids_to_check : $space_ids;
-
-		$primary_id = $spaces_to_check[0] ?? 0;
+		// Use combined space IDs for availability check
+		$primary_id = $all_space_ids_to_check[0] ?? 0;
 		error_log('AVAIL INTERSECTION: Getting slots for primary_id=' . $primary_id . ', date=' . $date . ', step_mins=' . $step_mins);
 		$slots_result = $this->get_slots($primary_id, $date, $step_mins);
 		$raw_slots = $slots_result['slots'] ?? [];
@@ -156,8 +109,8 @@ final class AvailabilityService
 			}
 		}
 
-		if (count($spaces_to_check) === 1 && $has_blocked) {
-			$blocking_intervals = $this->repo->get_blocking_intervals($spaces_to_check, $date);
+		if (count($all_space_ids_to_check) === 1 && $has_blocked) {
+			$blocking_intervals = $this->repo->get_blocking_intervals($all_space_ids_to_check, $date);
 			$blockers = [];
 
 			foreach ($blocking_intervals as $block) {
@@ -178,7 +131,7 @@ final class AvailabilityService
 			];
 		}
 
-		if (count($spaces_to_check) === 1) {
+		if (count($all_space_ids_to_check) === 1) {
 			return [
 				'slots' => $slots_result['slots'],
 				'blockers' => [],
@@ -186,12 +139,12 @@ final class AvailabilityService
 			];
 		}
 
-		error_log('AVAIL INTERSECTION: Checking ' . count($spaces_to_check) . ' spaces for common slots');
+		error_log('AVAIL INTERSECTION: Checking ' . count($all_space_ids_to_check) . ' spaces for common slots');
 
 		$per_space_slots = [];
 		$available_counts = [];
 
-		foreach ($spaces_to_check as $space_id) {
+		foreach ($all_space_ids_to_check as $space_id) {
 			$slots_result = $this->get_slots($space_id, $date, $step_mins);
 			$raw_slots = $slots_result['slots'];
 
@@ -210,7 +163,7 @@ final class AvailabilityService
 		}
 
 		$blockers = [];
-		foreach ($spaces_to_check as $space_id) {
+		foreach ($all_space_ids_to_check as $space_id) {
 			if ($available_counts[$space_id] === 0) {
 				$title = get_the_title($space_id) ?: "Space #$space_id";
 				$blockers[] = [
@@ -236,7 +189,7 @@ final class AvailabilityService
 		$common_slots = [];
 		
 		// Get the first space's available slots as base
-		$first_space_id = $spaces_to_check[0];
+		$first_space_id = $all_space_ids_to_check[0];
 		$first_space_slots = $per_space_slots[$first_space_id];
 		
 		// Filter to only available slots in the first space
@@ -252,8 +205,8 @@ final class AvailabilityService
 			// Check if this slot is available in ALL other spaces
 			$is_available_in_all = true;
 			
-			for ($i = 1; $i < count($spaces_to_check); $i++) {
-				$space_id = $spaces_to_check[$i];
+			for ($i = 1; $i < count($all_space_ids_to_check); $i++) {
+				$space_id = $all_space_ids_to_check[$i];
 				$space_has_slot = false;
 				$slot_available_in_space = false;
 				

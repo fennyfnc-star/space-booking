@@ -227,9 +227,17 @@ export function Step6Payment() {
             <span>Space</span>
             <span>
               {(() => {
+                const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
+                const packageSpaceIds = packageItem?.space_ids || [];
+                const packagePrimarySpaceId = packageItem?.space_id;
                 const spaceTitles = selectedItems
                   .filter((item) => item.type === "space")
-                  .map((item) => item.title);
+                  .map((item) => {
+                    const isPackageInclusion = 
+                      packageSpaceIds.includes(Number(item.id)) || 
+                      (packagePrimarySpaceId && Number(item.id) === packagePrimarySpaceId);
+                    return item.title + (isPackageInclusion ? " (Package)" : "");
+                  });
                 return spaceTitles.length > 0
                   ? spaceTitles.join(", ")
                   : (selectedItems[0]?.title ?? "No space selected");

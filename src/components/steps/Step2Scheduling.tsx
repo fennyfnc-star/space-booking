@@ -200,15 +200,19 @@ export function Step2Scheduling() {
     console.log("DEBUG resourceMap types:", freshSpaceIds.map(id => ({id, type: resourceMap?.[id]?.type})));
     console.log("DEBUG packageIds (raw):", packageIds);
 
-    // Only add EXPLICITLY selected spaces (not package-covered spaces)
-    // The backend will resolve packages to their included spaces
+    // Add ALL selected spaces (including package's included spaces)
+    // Frontend resolves package's space_ids so backend gets complete list
     let spaceIds: number[] = [];
     for (const item of selectedItems) {
       if (item.type === "space") {
         spaceIds.push(Number(item.id));
+      } else if (item.type === "package") {
+        // Add package's included spaces
+        const pkg = item as Package;
+        if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
+          spaceIds.push(...pkg.space_ids);
+        }
       }
-      // Packages are handled via packageIds - don't add their covered spaces here
-      // This was causing BUG 2: package's included space conflicting with itself
     }
     // Also add any locked resource IDs that aren't already selected (physical resources)
     // BUT: Only add if they're SPACE IDs, not package IDs
