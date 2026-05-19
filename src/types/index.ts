@@ -156,8 +156,9 @@ export interface BookingCreateResponse {
 
 declare module "@/utils/api" {
   interface BookingPayload {
-    space_id: number;
-    package_id?: number;
+    // NEW SCHEMA: Use arrays instead of singular IDs
+    space_ids: number[];
+    package_ids: number[];
     selected_item_ids: number[];
     date: string;
     start_time: string;

@@ -96,10 +96,11 @@ final class WooCommerceService
         // Track package inclusions for metadata (to show in emails)
         $package_inclusions = [];
         
-        // Common meta for ALL items
+        // Common meta for ALL items (NEW SCHEMA: use arrays)
         $common_meta = [
             'sb_booking_id' => $booking_id,
-            'sb_lead_space_id' => $booking_data['space_id'],
+            'sb_space_ids' => wp_json_encode($booking_data['space_ids'] ?? []),
+            'sb_package_ids' => wp_json_encode($booking_data['package_ids'] ?? []),
             'sb_selected_item_ids' => wp_json_encode($selected_item_ids),
             'sb_date' => $booking_data['date'],
             'sb_start_time' => $booking_data['start_time'],

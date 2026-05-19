@@ -76,8 +76,11 @@ final class PricingController extends WP_REST_Controller
 			}
 		}
 
+		// Convert package_id to array to match method signature (expects ?array)
+		$package_ids = $package_id !== null ? [$package_id] : null;
+		
 		$price = $this->pricing->calculate(
-			$space_id, $date, $start_time, $end_time, $extras, $item_ids, $package_id, $request->get_param('slot_id')
+			$space_id, $date, $start_time, $end_time, $extras, $item_ids, $package_ids, $request->get_param('slot_id')
 		);
 
 		error_log('SB_DEBUG_PRICING: Calculated total: ' . $price['total_price'] . ', breakdown count: ' . count($price['breakdown']));

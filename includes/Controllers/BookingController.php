@@ -79,8 +79,9 @@ final class BookingController extends WP_REST_Controller
 
 	public function create_booking(WP_REST_Request $request): WP_REST_Response
 	{
-		$space_id = (int) $request->get_param('space_id');
-		$package_id = $request->get_param('package_id') ? (int) $request->get_param('package_id') : null;
+		// NEW SCHEMA: Use arrays instead of singular IDs
+		$space_ids = array_map('intval', (array) $request->get_param('space_ids'));
+		$package_ids = array_map('intval', (array) $request->get_param('package_ids'));
 		$date = (string) $request->get_param('date');
 		$start_time = (string) $request->get_param('start_time');
 		$end_time = (string) $request->get_param('end_time');
@@ -99,11 +100,16 @@ final class BookingController extends WP_REST_Controller
 		if (empty($selected_item_ids)) {
 			return new WP_REST_Response(['message' => 'Missing selected_item_ids.'], 422);
 		}
-		$lead_space_id = $space_id;
 
+		// NEW SCHEMA: Validate that either space_ids OR package_ids is provided
+		if (empty($space_ids) && empty($package_ids)) {
+			return new WP_REST_Response(['message' => 'Either space_ids or package_ids must be provided.'], 422);
+		}
+
+		// Build data for booking creation
 		$data = [
-			'space_id' => $space_id,
-			'package_id' => $package_id,
+			'space_ids' => $space_ids,
+			'package_ids' => $package_ids,
 			'booking_date' => $date,
 			'start_time' => $start_time,
 			'end_time' => $end_time,
@@ -115,18 +121,19 @@ final class BookingController extends WP_REST_Controller
 			'extras' => $extras,
 		];
 
-		// ── Guard: space or package exists ───────────────────────────────────────────────
-		if ($package_id) {
-			// Package selected - verify package exists
-			$post = get_post($package_id);
-			if (!$post || $post->post_type !== 'sb_package' || $post->post_status !== 'publish') {
-				return new WP_REST_Response(['message' => 'Invalid package.'], 422);
-			}
-		} else {
-			// Space only - verify space exists
-			$post = get_post($space_id);
+		// NEW SCHEMA: Validate all space IDs exist and are published
+		foreach ($space_ids as $sid) {
+			$post = get_post($sid);
 			if (!$post || $post->post_type !== 'sb_space' || $post->post_status !== 'publish') {
-				return new WP_REST_Response(['message' => 'Invalid space.'], 422);
+				return new WP_REST_Response(['message' => 'Invalid space ID: ' . $sid], 422);
+			}
+		}
+
+		// NEW SCHEMA: Validate all package IDs exist and are published
+		foreach ($package_ids as $pid) {
+			$post = get_post($pid);
+			if (!$post || $post->post_type !== 'sb_package' || $post->post_status !== 'publish') {
+				return new WP_REST_Response(['message' => 'Invalid package ID: ' . $pid], 422);
 			}
 		}
 
@@ -153,14 +160,17 @@ final class BookingController extends WP_REST_Controller
 		}
 
 		// ── Calculate price USING ALL selected_item_ids ──────────────────────
+		// NEW SCHEMA: Pass arrays to pricing service
 		$price = $this->pricing->calculate(
-			$lead_space_id, $date, $start_time, $end_time, $extras, $selected_item_ids, $package_id, null
+			null, // deprecated first param (was $lead_space_id)
+			$date, $start_time, $end_time, $extras, $selected_item_ids, $package_ids, null
 		);
 
 		// DEBUG: Log pricing details
 		error_log(sprintf(
-			'SpaceBooking DEBUG: Booking#%d price calc - base:%.2f extras:%.2f modifier:%.2f total:%.2f',
-			$lead_space_id,
+			'SpaceBooking DEBUG: Booking price calc - space_ids:%s package_ids:%s - base:%.2f extras:%.2f modifier:%.2f total:%.2f',
+			json_encode($space_ids),
+			json_encode($package_ids),
 			$price['base_price'],
 			$price['extras_price'],
 			$price['modifier_price'] ?? 0,
@@ -201,8 +211,7 @@ final class BookingController extends WP_REST_Controller
 		$data['duration_hours'] = $price['duration_hours'];
 
 		error_log(sprintf(
-			'SpaceBooking DEBUG: Saving booking#%d with total_price=%.2f (base=%.2f extras=%.2f)',
-			$lead_space_id,
+			'SpaceBooking DEBUG: Saving booking with total_price=%.2f (base=%.2f extras=%.2f)',
 			$data['total_price'],
 			$data['base_price'],
 			$data['extras_price']
@@ -245,27 +254,21 @@ final class BookingController extends WP_REST_Controller
 			return new WP_REST_Response(['message' => 'Could not save booking.'], 500);
 		}
 
-		// ── NEW SCHEMA: Link additional spaces using link_space ────────
-		// Instead of creating shadow rows, we link spaces to the booking
-		// using the sb_booking_spaces table. Each space gets its own row
-		// with the same booking_id for tracking.
-
-		$other_spaces = array_values(array_diff($selected_item_ids, [$lead_space_id]));
-		foreach ($other_spaces as $sid) {
+		// NEW SCHEMA: Link all spaces using link_space (iterate over array)
+		foreach ($space_ids as $sid) {
 			try {
-				// Use new link_space method instead of create_booking_row
-				$this->repo->link_space($booking_id, $sid, $start_time, $end_time, $package_id);
+				$this->repo->link_space($booking_id, $sid, $start_time, $end_time);
 			} catch (\RuntimeException $e) {
 				error_log('Failed to link space for booking #' . $booking_id . ' space ' . $sid . ': ' . $e->getMessage());
 			}
 		}
 
-		// If booking a package, link it using the new link_package method
-		if ($package_id) {
+		// NEW SCHEMA: Link all packages using link_package (iterate over array)
+		foreach ($package_ids as $pkg_id) {
 			try {
-				$this->repo->link_package($booking_id, $package_id, $lead_space_id);
+				$this->repo->link_package($booking_id, $pkg_id, $space_ids[0] ?? null);
 			} catch (\RuntimeException $e) {
-				error_log('Failed to link package for booking #' . $booking_id . ' package ' . $package_id . ': ' . $e->getMessage());
+				error_log('Failed to link package for booking #' . $booking_id . ' package ' . $pkg_id . ': ' . $e->getMessage());
 			}
 		}
 
@@ -276,8 +279,8 @@ final class BookingController extends WP_REST_Controller
 
 		try {
 			$checkout_url = $this->wc->add_booking_to_cart([
-				'space_id' => $space_id,
-				'package_id' => $package_id,
+				'space_ids' => $space_ids,
+				'package_ids' => $package_ids,
 				'selected_item_ids' => $selected_item_ids,
 				'date' => $date,
 				'start_time' => $start_time,
@@ -306,8 +309,8 @@ final class BookingController extends WP_REST_Controller
 			try {
 				$pending_data = [
 					'booking_data' => [
-						'space_id' => $space_id,
-						'package_id' => $package_id,
+						'space_ids' => $space_ids,
+						'package_ids' => $package_ids,
 						'selected_item_ids' => $selected_item_ids,
 						'date' => $date,
 						'start_time' => $start_time,
@@ -395,8 +398,21 @@ final class BookingController extends WP_REST_Controller
 	private function get_create_args(): array
 	{
 		return [
-			'space_id' => ['required' => true, 'sanitize_callback' => 'absint'],
-			'package_id' => ['required' => false, 'sanitize_callback' => 'absint'],
+			// NEW SCHEMA: Use arrays instead of singular IDs
+			'space_ids' => [
+				'required' => false,
+				'type' => 'array',
+				'sanitize_callback' => function ($input) {
+					return array_map('absint', (array) $input);
+				}
+			],
+			'package_ids' => [
+				'required' => false,
+				'type' => 'array',
+				'sanitize_callback' => function ($input) {
+					return array_map('absint', (array) $input);
+				}
+			],
 			'date' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'start_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'end_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],

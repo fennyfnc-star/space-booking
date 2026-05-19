@@ -92,6 +92,8 @@ interface BookingState {
   loadBookingStatus: (id: number) => Promise<void>;
   setBookingStatus: (status: "pending" | "in_review" | "error") => void;
   getPrimarySpaceId: () => number | null;
+  getAllSpaceIds: () => number[];
+  getAllPackageIds: () => number[];
   getCoveredSpaceIds: () => number[];
   setHasCartBooking: (has: boolean) => void;
   reset: () => void;
@@ -399,6 +401,18 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
       }
     }
     return Number(item.id); // Fallback
+  },
+  getAllSpaceIds: () => {
+    const state = get();
+    return state.selectedItems
+      .filter(item => item.type === "space")
+      .map(item => Number(item.id));
+  },
+  getAllPackageIds: () => {
+    const state = get();
+    return state.selectedItems
+      .filter(item => item.type === "package")
+      .map(item => Number(item.id));
   },
   getCoveredSpaceIds: () => {
     const state = get();

@@ -94,12 +94,15 @@ export function Step6Payment() {
       
       const pricingParams = {
         space_id: spaceId,
-        item_ids: itemIds,
+        item_ids: [
+          ...useBookingStore.getState().getAllSpaceIds(), 
+          ...useBookingStore.getState().getAllPackageIds()
+        ],
         date: selectedDate,
         start_time: selectedStartTime,
         end_time: selectedEndTime,
         extras: selectedExtras,
-        package_id: selectedItems.find((i) => i.type === "package")?.id,
+        package_id: useBookingStore.getState().getAllPackageIds()[0],
       };
 
       try {
@@ -160,8 +163,13 @@ export function Step6Payment() {
 
     try {
       const res = await createBooking({
-        space_id: spaceId,
-        package_id: packageId,
+        // NEW SCHEMA: Use arrays instead of singular IDs
+        space_ids: selectedItemIds.filter(id => 
+          useBookingStore.getState().selectedItems.find(item => Number(item.id) === id)?.type === 'space'
+        ),
+        package_ids: selectedItemIds.filter(id => 
+          useBookingStore.getState().selectedItems.find(item => Number(item.id) === id)?.type === 'package'
+        ),
         selected_item_ids: selectedItemIds,
         date: selectedDate,
         start_time: selectedStartTime,

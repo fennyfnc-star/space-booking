@@ -14,12 +14,14 @@ use DateTime;
 final class PricingService
 {
 	/**
-	 * @param int    $space_id
-	 * @param string $date        Y-m-d
-	 * @param string $start_time  H:i
-	 * @param string $end_time    H:i
-	 * @param array  $extras      [ ['extra_id' => int, 'quantity' => int], ... ]
-	 * @param int|null $package_id
+	 * @param int|null  $deprecated   Deprecated: was $space_id, now ignored
+	 * @param string    $date         Y-m-d
+	 * @param string    $start_time   H:i
+	 * @param string    $end_time     H:i
+	 * @param array     $extras       [ ['extra_id' => int, 'quantity' => int], ... ]
+	 * @param array|null $item_ids    NEW: Array of item IDs to price (spaces and packages)
+	 * @param array|null $package_ids NEW: Array of package IDs (for extras inclusion calculation)
+	 * @param string|null $slot_id
 	 * @return array {
 	 *   base_price: float,
 	 *   modifier_price: float,
@@ -29,13 +31,13 @@ final class PricingService
 	 * }
 	 */
 	public function calculate(
-		int $space_id,
-		string $date,
-		string $start_time,
-		string $end_time,
+		?int $deprecated = null,
+		string $date = '',
+		string $start_time = '',
+		string $end_time = '',
 		array $extras = [],
 		?array $item_ids = null,
-		?int $package_id = null,
+		?array $package_ids = null,
 		?string $slot_id = null
 	): array {
 		$duration_hours = $this->hours_between($start_time, $end_time);
@@ -45,11 +47,11 @@ final class PricingService
 		$item_details = [];  // NEW: per-item tracking
 		$total_duration = 0.0;
 
-		error_log('SB_PRICING: Starting validation for item_ids=' . json_encode($item_ids) . ', space_id=' . $space_id);
-		$item_ids = $item_ids ?? [$space_id];
+		// NEW SCHEMA: Use $item_ids array (fallback to first item for backwards compatibility)
+		$item_ids = $item_ids ?? ($deprecated ? [$deprecated] : []);
 		if (!is_array($item_ids)) {
-			error_log('SB_PRICING: Invalid item_ids type, fallback to space_id=' . $space_id);
-			$item_ids = [$space_id];
+			error_log('SB_PRICING: Invalid item_ids type, fallback to []');
+			$item_ids = [];
 		}
 
 		// Validate all item_ids exist and are valid posts
@@ -57,17 +59,13 @@ final class PricingService
 		foreach ($item_ids as $id) {
 			$post = get_post($id);
 			if ($post) {
-				error_log('SB_PRICING: ID ' . $id . ' post_type=' . $post->post_type . ', status=' . $post->post_status);
 				if (in_array($post->post_type, ['sb_space', 'sb_package']) && $post->post_status === 'publish') {
 					$valid_ids[] = $id;
-				} else {
-					error_log('SB_PRICING: Invalid item_id ' . $id . ' (type=' . $post->post_type . ', status=' . $post->post_status . '), skipping');
 				}
-			} else {
-				error_log('SB_PRICING: No post found for item_id ' . $id . ', skipping');
 			}
 		}
-		error_log('SB_PRICING: Valid IDs after validation: ' . json_encode($valid_ids) . ', final item_ids=' . json_encode($item_ids = $valid_ids ?: [$space_id]));
+		// Use validated IDs (empty array if none valid - pricing will return 0)
+		$item_ids = $valid_ids;
 
 		foreach ($item_ids as $item_id) {
 			$item_type = get_post_type($item_id);
@@ -183,8 +181,8 @@ final class PricingService
 		}
 
 		$display_duration = $duration_hours;
-		// Use package-aware extras calculation
-		$extras_result = $this->calculate_extras_with_allowance($extras, $package_id);
+		// NEW SCHEMA: Use package_ids array for extras allowance calculation
+		$extras_result = $this->calculate_extras_with_allowance($extras, $package_ids);
 		$extras_price = $extras_result['total'];
 		$total = $running_total + $extras_price;
 
@@ -345,24 +343,25 @@ final class PricingService
 	/**
 	 * Calculate extras price with package allowance (first unit free logic)
 	 * 
-	 * @param array  $extras      [ ['extra_id' => int, 'quantity' => int], ... ]
-	 * @param int|null $package_id  Package ID to check for included extras
+	 * @param array      $extras        [ ['extra_id' => int, 'quantity' => int], ... ]
+	 * @param array|null $package_ids   NEW: Array of package IDs to check for included extras
 	 * @return array {
 	 *   total: float,
 	 *   breakdown: array,
 	 *   details: array  // For UI: extra_id, title, total_qty, included_qty, paid_qty, unit_price
 	 * }
 	 */
-	private function calculate_extras_with_allowance(array $extras, ?int $package_id = null): array
+	private function calculate_extras_with_allowance(array $extras, ?array $package_ids = null): array
 	{
 		$total = 0.0;
 		$breakdown = [];
 		$details = [];
 		
-		// Get included extras from package
+		// Get included extras from all packages (NEW: iterate over array)
 		$included_extras = [];
-		if ($package_id) {
-			$pkg_extra_ids = get_post_meta($package_id, '_sb_package_extra_ids', true);
+		$package_ids = $package_ids ?? [];
+		foreach ($package_ids as $pkg_id) {
+			$pkg_extra_ids = get_post_meta($pkg_id, '_sb_package_extra_ids', true);
 			if (is_array($pkg_extra_ids)) {
 				foreach ($pkg_extra_ids as $item) {
 					// Support both flat array [5, 10] and object array [{extra_id: 5, quantity: 1}, ...]
@@ -375,7 +374,9 @@ final class PricingService
 						$qty = 1;
 					}
 					if ($extra_id > 0) {
-						$included_extras[$extra_id] = $qty;
+						// Use max to handle multiple packages (take highest included qty)
+						$current = $included_extras[$extra_id] ?? 0;
+						$included_extras[$extra_id] = max($current, $qty);
 					}
 				}
 			}

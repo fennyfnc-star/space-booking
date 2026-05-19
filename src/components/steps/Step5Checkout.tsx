@@ -101,8 +101,13 @@ export function Step5Checkout() {
 
     try {
       const res = await createBooking({
-        space_id: spaceId,
-        package_id: packageId,
+        // NEW SCHEMA: Use arrays instead of singular IDs
+        space_ids: selectedItemIds.filter(id => 
+          get().selectedItems.find(item => Number(item.id) === id)?.type === 'space'
+        ),
+        package_ids: selectedItemIds.filter(id => 
+          get().selectedItems.find(item => Number(item.id) === id)?.type === 'package'
+        ),
         selected_item_ids: selectedItemIds,
         date: selectedDate,
         start_time: selectedStartTime,

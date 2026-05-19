@@ -211,13 +211,18 @@ export function Step3Addons() {
     }
 
     const pricingParams = {
-      space_id: spaceId,
-      item_ids: itemIds,
+      // NEW SCHEMA: Use arrays instead of singular IDs (maintaining backward compatibility)
+      space_id: spaceId || 0,
+      item_ids: [
+        ...useBookingStore.getState().getAllSpaceIds(), 
+        ...useBookingStore.getState().getAllPackageIds()
+      ],
       date: selectedDate,
       start_time: selectedStartTime,
       end_time: selectedEndTime,
       extras: selectedExtras,
-      package_id: packageId,
+      // Pass first package ID for extras allowance calculation (the API currently accepts one)
+      package_id: useBookingStore.getState().getAllPackageIds()[0] || undefined,
     };
     console.log("Params sent to /pricing:", pricingParams);
 

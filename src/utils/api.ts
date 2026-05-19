@@ -113,8 +113,9 @@ export const fetchPricing = (params: {
 // ── Create Booking ────────────────────────────────────────────────────────────
 
 export const createBooking = (payload: {
-  space_id: number;
-  package_id?: number;
+  // NEW SCHEMA: Use arrays
+  space_ids: number[];
+  package_ids: number[];
   selected_item_ids: number[];
   date: string;
   start_time: string;

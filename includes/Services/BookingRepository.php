@@ -34,6 +34,7 @@ class BookingRepository
 		$booking['_meta_data'] = $meta;
 
 		// Enrich with space/package info
+		// For backward compatibility, use primary space_id from the booking record as well as available metadata
 		$space = get_post($booking['space_id']);
 		$package = $booking['package_id'] ? get_post($booking['package_id']) : null;
 
@@ -47,7 +48,7 @@ class BookingRepository
 		}
 
 		// Fallback to space_id if no selected_item_ids (legacy bookings)
-		if (empty($selected_item_ids)) {
+		if (empty($selected_item_ids) && !empty($booking['space_id'])) {
 			$selected_item_ids = [(int) $booking['space_id']];
 		}
 
@@ -190,13 +191,36 @@ class BookingRepository
 	{
 		global $wpdb;
 
+		// NEW SCHEMA: Handle both legacy (single ID) and new (array of IDs) formats
+		// For the main booking record, use first space_id and first package_id as primary
+		$space_id = null;
+		$package_id = null;
+		
+		// Handle space_id: could be single value or array
+		if (isset($data['space_id'])) {
+			// Legacy format
+			$space_id = $data['space_id'];
+		} elseif (isset($data['space_ids']) && is_array($data['space_ids']) && !empty($data['space_ids'])) {
+			// New format: get first space_id from array
+			$space_id = (int) $data['space_ids'][0];
+		}
+		
+		// Handle package_id: could be single value or array
+		if (isset($data['package_id'])) {
+			// Legacy format
+			$package_id = $data['package_id'];
+		} elseif (isset($data['package_ids']) && is_array($data['package_ids']) && !empty($data['package_ids'])) {
+			// New format: get first package_id from array
+			$package_id = (int) $data['package_ids'][0];
+		}
+
 		// NOTE: The 'extras' column was removed from insert because it's not in the database schema.
 		// Extras are stored separately in the sb_booking_extras table via save_extras() call below.
 		$result = $wpdb->insert(
 			$wpdb->prefix . 'sb_bookings',
 			[
-				'space_id' => $data['space_id'],
-				'package_id' => $data['package_id'] ?? null,
+				'space_id' => $space_id,
+				'package_id' => $package_id,
 				'customer_name' => $data['customer_name'],
 				'customer_email' => $data['customer_email'],
 				'customer_phone' => $data['customer_phone'] ?? '',
@@ -291,15 +315,14 @@ class BookingRepository
 			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
 			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
 			WHERE (
-				b.space_id IN ({$space_ids_placeholder})
-				OR bs.space_id IN ({$space_ids_placeholder})
+				bs.space_id IN ({$space_ids_placeholder})
 				OR bp.space_id IN ({$space_ids_placeholder})
 			)
 			AND b.booking_date = %s 
 			AND b.status = 'pending'
 			AND b.expired_at > NOW()
 			ORDER BY b.start_time",
-			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
+			...array_merge($space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
 
 		// Normalize time strings
 		foreach ($results as &$row) {
@@ -351,8 +374,7 @@ class BookingRepository
 			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
 			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
 			WHERE (
-				b.space_id IN ({$space_ids_placeholder})
-				OR bs.space_id IN ({$space_ids_placeholder})
+				bs.space_id IN ({$space_ids_placeholder})
 				OR bp.space_id IN ({$space_ids_placeholder})
 			)
 			AND b.booking_date = %s
@@ -360,7 +382,7 @@ class BookingRepository
 				b.status IN ('confirmed', 'in_review', 'paid')
 				OR (b.status = 'pending' AND b.expired_at > NOW())
 			)",
-			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date]));
+			...array_merge($space_ids_params, $space_ids_params, [$date]));
 
 		error_log('SB_DEBUG: get_blocking_intervals booking_id query: ' . str_replace("\n", ' ', $booking_id_query));
 
