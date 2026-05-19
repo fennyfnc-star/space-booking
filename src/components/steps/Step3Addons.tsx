@@ -14,13 +14,23 @@ import type {
 // Icons as simple SVG components
 const MinusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path d="M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    <path
+      d="M3 8h10"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
   </svg>
 );
 
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    <path
+      d="M8 3v10M3 8h10"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
   </svg>
 );
 
@@ -58,7 +68,11 @@ export function Step3Addons() {
       }
       if (item.type === "package") {
         const pkg = item as Package;
-        if (pkg.space_ids && Array.isArray(pkg.space_ids) && pkg.space_ids.length > 0) {
+        if (
+          pkg.space_ids &&
+          Array.isArray(pkg.space_ids) &&
+          pkg.space_ids.length > 0
+        ) {
           return pkg.space_ids[0];
         }
         if (pkg.space_id) {
@@ -114,7 +128,10 @@ export function Step3Addons() {
         includedExtraIds.push(pkg.extra_id);
       }
       if (includedExtraIds.length > 0) {
-        console.log("📦 Package includes extras (backend handles breakdown):", includedExtraIds);
+        console.log(
+          "📦 Package includes extras (backend handles breakdown):",
+          includedExtraIds,
+        );
       }
     }
 
@@ -160,37 +177,39 @@ export function Step3Addons() {
     }
 
     console.group("💰 STEP3 fetchPricing");
-    
+
     // Build item_ids - include package ID if selected, but also any additional spaces not in the package
     const itemIds: number[] = [];
-    
+
     // Add package ID if it exists
     if (packageId) {
-        itemIds.push(Number(packageId));
+      itemIds.push(Number(packageId));
     }
-    
+
     // Add any additional spaces that were selected separately (not part of the package)
     // This allows users to select a package plus additional spaces
     for (const item of selectedItems) {
-        if (item.type === "space") {
-            // Only add space if it's not already part of the package
-            // If no package is selected, add all spaces
-            if (!packageId) {
-                itemIds.push(Number(item.id));
-            } else {
-                // If package exists, only add spaces that are NOT part of the package
-                // Determine which spaces are in the package
-                const pkgItem = selectedItems.find(i => i.type === "package") as Package | undefined;
-                const packageSpaceIds = pkgItem?.space_ids || [];
-                
-                // Add the space if it's not in the package
-                if (!packageSpaceIds.includes(Number(item.id))) {
-                    itemIds.push(Number(item.id));
-                }
-            }
+      if (item.type === "space") {
+        // Only add space if it's not already part of the package
+        // If no package is selected, add all spaces
+        if (!packageId) {
+          itemIds.push(Number(item.id));
+        } else {
+          // If package exists, only add spaces that are NOT part of the package
+          // Determine which spaces are in the package
+          const pkgItem = selectedItems.find((i) => i.type === "package") as
+            | Package
+            | undefined;
+          const packageSpaceIds = pkgItem?.space_ids || [];
+
+          // Add the space if it's not in the package
+          if (!packageSpaceIds.includes(Number(item.id))) {
+            itemIds.push(Number(item.id));
+          }
         }
+      }
     }
-    
+
     const pricingParams = {
       space_id: spaceId,
       item_ids: itemIds,
@@ -292,7 +311,8 @@ export function Step3Addons() {
       // Not selected or no merged data - show regular price
       return (
         <span className="sb-extra-card__price">
-          {window.sbConfig.symbol}{extra.price.toFixed(2)}
+          {window.sbConfig.symbol}
+          {extra.price.toFixed(2)}
         </span>
       );
     }
@@ -321,7 +341,8 @@ export function Step3Addons() {
             ✓ {included_qty} Included
           </span>
           <span className="sb-extra-card__price">
-            +{paid_qty} Additional: {window.sbConfig.symbol}{(paid_qty * unit_price).toFixed(2)}
+            +{paid_qty} Additional: {window.sbConfig.symbol}
+            {(paid_qty * unit_price).toFixed(2)}
           </span>
         </div>
       );
@@ -330,7 +351,8 @@ export function Step3Addons() {
     // Case 3: No package - regular price
     return (
       <span className="sb-extra-card__price">
-        {window.sbConfig.symbol}{extra.price.toFixed(2)}
+        {window.sbConfig.symbol}
+        {extra.price.toFixed(2)}
       </span>
     );
   };
@@ -424,69 +446,83 @@ export function Step3Addons() {
 
       {!loading && extras.length > 0 && (
         <div className="sb-extras">
-          {extras.map((extra) => (
-            <div
-              key={extra.id}
-              className={`sb-extra-card ${isSelected(extra.id) ? "sb-extra-card--selected" : ""} ${!extra.is_available ? "sb-extra-card--unavailable" : ""}`}
-            >
-              <div className="sb-extra-card__info">
-                {extra.thumbnail && (
-                  <img
-                    src={extra.thumbnail}
-                    alt={extra.title}
-                    className="sb-extra-card__img"
-                  />
-                )}
-                <div>
-                  <strong className="sb-extra-card__name">{extra.title}</strong>
-                  <p className="sb-extra-card__desc">{extra.description}</p>
-                  <span className="sb-extra-card__price">
-                    {window.sbConfig.symbol}
-                    {extra.price.toFixed(2)}
-                  </span>
-                  {!extra.is_available && extra.unavailable_reason && (
-                    <span
-                      className={`sb-badge sb-badge--sold-out ${
-                        extra.unavailable_reason === "space_override"
-                          ? "sb-badge--closed"
-                          : ""
-                      }`}
-                    >
-                      {extra.unavailable_reason === "space_override"
-                        ? "Closed this time"
-                        : "Sold Out"}
-                    </span>
+          {extras.map((extra) => {
+            if (!isIncludedInPackage(extra.id) && isPackageOwned(extra)) {
+              return null;
+            }
+
+            return (
+              <div
+                key={extra.id}
+                className={`sb-extra-card ${isSelected(extra.id) ? "sb-extra-card--selected" : ""} ${!extra.is_available ? "sb-extra-card--unavailable" : ""}`}
+              >
+                <div className="sb-extra-card__info">
+                  {extra.thumbnail && (
+                    <img
+                      src={extra.thumbnail}
+                      alt={extra.title}
+                      className="sb-extra-card__img"
+                    />
                   )}
-                  {extra.is_available && extra.available_qty < 3 && (
-                    <span className="sb-badge sb-badge--low">
-                      Only {extra.available_qty} left
+                  <div>
+                    <strong className="sb-extra-card__name">
+                      {extra.title}
+                    </strong>
+                    <p className="sb-extra-card__desc">{extra.description}</p>
+                    <span className="sb-extra-card__price">
+                      {window.sbConfig.symbol}
+                      {extra.price.toFixed(2)}
                     </span>
-                  )}
+                    {!extra.is_available && extra.unavailable_reason && (
+                      <span
+                        className={`sb-badge sb-badge--sold-out ${
+                          extra.unavailable_reason === "space_override"
+                            ? "sb-badge--closed"
+                            : ""
+                        }`}
+                      >
+                        {extra.unavailable_reason === "space_override"
+                          ? "Closed this time"
+                          : "Sold Out"}
+                      </span>
+                    )}
+                    {extra.is_available && extra.available_qty < 3 && (
+                      <span className="sb-badge sb-badge--low">
+                        Only {extra.available_qty} left
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {/* Show "Included" badge if extra is in package, otherwise show Add/Remove button */}
+                {isIncludedInPackage(extra.id) ? (
+                  <span className="sb-badge sb-badge--included">
+                    ✓ Included
+                  </span>
+                ) : isPackageOwned(extra) ? (
+                  <span className="sb-badge sb-badge--package-only">
+                    Package Only
+                  </span>
+                ) : (
+                  <button
+                    className={`sb-btn ${isSelected(extra.id) ? "sb-btn--danger" : "sb-btn--secondary"}`}
+                    disabled={!extra.is_available}
+                    onClick={() => {
+                      console.group("🔄 STEP3 Toggle Extra");
+                      console.log("Toggling extra ID:", extra.id);
+                      console.log("Current selectedExtras:", selectedExtras);
+                      toggleExtra(extra.id);
+                      console.log(
+                        "After toggle - should trigger pricing refetch",
+                      );
+                      console.groupEnd();
+                    }}
+                  >
+                    {isSelected(extra.id) ? "Remove" : "Add"}
+                  </button>
+                )}
               </div>
-              {/* Show "Included" badge if extra is in package, otherwise show Add/Remove button */}
-              {isIncludedInPackage(extra.id) ? (
-                <span className="sb-badge sb-badge--included">✓ Included</span>
-              ) : isPackageOwned(extra) ? (
-                <span className="sb-badge sb-badge--package-only">Package Only</span>
-              ) : (
-                <button
-                  className={`sb-btn ${isSelected(extra.id) ? "sb-btn--danger" : "sb-btn--secondary"}`}
-                  disabled={!extra.is_available}
-                  onClick={() => {
-                    console.group("🔄 STEP3 Toggle Extra");
-                    console.log("Toggling extra ID:", extra.id);
-                    console.log("Current selectedExtras:", selectedExtras);
-                    toggleExtra(extra.id);
-                    console.log("After toggle - should trigger pricing refetch");
-                    console.groupEnd();
-                  }}
-                >
-                  {isSelected(extra.id) ? "Remove" : "Add"}
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -496,7 +532,10 @@ export function Step3Addons() {
           <h4>Price Preview</h4>
           <ul className="sb-breakdown">
             {preview.breakdown.map((item, i) => (
-              <li key={i} className={`sb-breakdown__item ${item.label.includes('(Package Inclusion)') ? 'package-inclusion' : ''}`}>
+              <li
+                key={i}
+                className={`sb-breakdown__item ${item.label.includes("(Package Inclusion)") ? "package-inclusion" : ""}`}
+              >
                 <span>{enrichBreakdownLabel(item.label)}</span>
                 <span>
                   {window.sbConfig.symbol}
