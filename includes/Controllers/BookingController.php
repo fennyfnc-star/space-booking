@@ -266,7 +266,9 @@ final class BookingController extends WP_REST_Controller
 		// NEW SCHEMA: Link all packages using link_package (iterate over array)
 		foreach ($package_ids as $pkg_id) {
 			try {
-				$this->repo->link_package($booking_id, $pkg_id, $space_ids[0] ?? null);
+				// Get the actual space_id associated with this package
+			$pkg_space_id = (int) get_post_meta($pkg_id, '_sb_package_space_id', true);
+			$this->repo->link_package($booking_id, $pkg_id, $pkg_space_id);
 			} catch (\RuntimeException $e) {
 				error_log('Failed to link package for booking #' . $booking_id . ' package ' . $pkg_id . ': ' . $e->getMessage());
 			}
