@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
-import { createBooking, checkCartHasBooking, fetchPricing } from "@/utils/api";
-import type { Package } from "@/types";
+import { createBooking, fetchPricing } from "@/utils/api";
+import type { Package, Space } from "@/types";
 
 export function Step6Payment() {
   const {
     checkoutUrl,
-    lockedResourceIds,
     priceBreakdown,
     totalPrice,
     selectedDate,
@@ -14,25 +13,11 @@ export function Step6Payment() {
     selectedEndTime,
     customerInfo,
     selectedExtras,
-    availableExtras,
     prevStep,
     hasCartBooking,
     checkCartBooking,
     selectedItems,
-    packageCoverage,
   } = useBookingStore();
-
-  // Get package title for breakdown enrichment
-  const packageTitle = packageCoverage.length > 0 ? packageCoverage[0].packageTitle : null;
-
-  // Get space name for breakdown enrichment
-  const spaceName = (() => {
-    const spaceItem = selectedItems.find((i) => i.type === "space");
-    if (spaceItem) return spaceItem.title;
-    const pkgItem = selectedItems.find((i) => i.type === "package") as any;
-    if (pkgItem?.space_name) return pkgItem.space_name;
-    return "";
-  })();
 
   // Return label as-is from backend
   const enrichBreakdownLabel = (label: string): string => {
@@ -45,11 +30,9 @@ export function Step6Payment() {
 
   // Get first space ID from lockedResourceIds array
   const getFirstSpaceId = (): number => {
-    if (lockedResourceIds && lockedResourceIds.length > 0) {
-      return lockedResourceIds[0];
-    }
-    if (selectedItems.length > 0) {
-      return Number(selectedItems[0].id);
+    const firstSpace = selectedItems.find((item) => item.type === "space");
+    if (firstSpace) {
+      return Number(firstSpace.id);
     }
     return 0;
   };
@@ -58,51 +41,19 @@ export function Step6Payment() {
   useEffect(() => {
     const refreshPricing = async () => {
       const spaceId = getFirstSpaceId();
-      if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime)
+      if (!selectedItems.length || !selectedDate || !selectedStartTime || !selectedEndTime)
         return;
 
-      // Build item_ids - include package ID if selected, but also any additional spaces not in the package
-      const packageId = selectedItems.find((i) => i.type === "package")?.id;
-      const itemIds: number[] = [];
-      
-      // Add package ID if it exists
-      if (packageId) {
-          itemIds.push(Number(packageId));
-      }
-      
-      // Add any additional spaces that were selected separately (not part of the package)
-      // This allows users to select a package plus additional spaces
-      for (const item of selectedItems) {
-          if (item.type === "space") {
-              // Only add space if it's not already part of the package
-              // If no package is selected, add all spaces
-              if (!packageId) {
-                  itemIds.push(Number(item.id));
-              } else {
-                  // If package exists, only add spaces that are NOT part of the package
-                  // Determine which spaces are in the package
-                  const pkgItem = selectedItems.find(i => i.type === "package") as Package | undefined;
-                  const packageSpaceIds = pkgItem?.space_ids || [];
-                  
-                  // Add the space if it's not in the package
-                  if (!packageSpaceIds.includes(Number(item.id))) {
-                      itemIds.push(Number(item.id));
-                  }
-              }
-          }
-      }
+      const itemIds = selectedItems.map((item) => Number(item.id));
       
       const pricingParams = {
         space_id: spaceId,
-        item_ids: [
-          ...useBookingStore.getState().getAllSpaceIds(), 
-          ...useBookingStore.getState().getAllPackageIds()
-        ],
+        item_ids: itemIds,
         date: selectedDate,
         start_time: selectedStartTime,
         end_time: selectedEndTime,
         extras: selectedExtras,
-        package_id: useBookingStore.getState().getAllPackageIds()[0],
+        package_ids: useBookingStore.getState().getAllPackageIds(),
       };
 
       try {
@@ -163,13 +114,12 @@ export function Step6Payment() {
 
     try {
       const res = await createBooking({
-        // NEW SCHEMA: Use arrays instead of singular IDs
-        space_ids: selectedItemIds.filter(id => 
-          useBookingStore.getState().selectedItems.find(item => Number(item.id) === id)?.type === 'space'
-        ),
-        package_ids: selectedItemIds.filter(id => 
-          useBookingStore.getState().selectedItems.find(item => Number(item.id) === id)?.type === 'package'
-        ),
+        space_ids: selectedItems
+          .filter((item) => item.type === "space")
+          .map((item) => Number(item.id)),
+        package_ids: selectedItems
+          .filter((item) => item.type === "package")
+          .map((item) => Number(item.id)),
         selected_item_ids: selectedItemIds,
         date: selectedDate,
         start_time: selectedStartTime,

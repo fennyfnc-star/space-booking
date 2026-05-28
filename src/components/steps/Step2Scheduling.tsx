@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { fetchMultiAvailability } from "@/utils/api";
 import type { AvailabilityResponse, TimeSlot, Package } from "@/types";
@@ -29,8 +29,8 @@ export function Step2Scheduling() {
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [pricePreview, setPricePreview] = useState(0);
-  const [priceLoading, setPriceLoading] = useState(false);
+  const [, setPricePreview] = useState(0);
+  const [, setPriceLoading] = useState(false);
   const [blockers, setBlockers] = useState<
     { id: number; title: string; reason?: string }[]
   >([]);
@@ -98,26 +98,12 @@ export function Step2Scheduling() {
       // ARRAY-ONLY: Always use fresh resource IDs
       setPriceLoading(true);
       try {
-        // Use first space ID for pricing API
-        const firstSpaceId = selectedItems.find((i) => i.type === "space") 
-          ? Number(selectedItems.find((i) => i.type === "space")!.id) 
+        // Use the first explicit space for the deprecated leading-space field.
+        const firstSpaceId = selectedItems.find((i) => i.type === "space")
+          ? Number(selectedItems.find((i) => i.type === "space")!.id)
           : 0;
-        const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
-        
-        // Build item_ids from resolved space IDs (not package IDs)
-        const itemIds: number[] = [];
-        for (const item of selectedItems) {
-          if (item.type === "space") {
-            itemIds.push(Number(item.id));
-          } else if (item.type === "package") {
-            const pkg = item as Package;
-            if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
-              itemIds.push(...pkg.space_ids);
-            } else if (pkg.space_id) {
-              itemIds.push(pkg.space_id);
-            }
-          }
-        }
+        const packageIds = useBookingStore.getState().getAllPackageIds();
+        const itemIds = selectedItems.map((item) => Number(item.id));
         
         const pricing = await fetchPricing({
           space_id: firstSpaceId,
@@ -126,7 +112,7 @@ export function Step2Scheduling() {
           item_ids: itemIds,
           end_time: slot.end,
           extras: [],
-          package_id: packageItem?.id,
+          package_ids: packageIds,
         });
         setPricePreview(pricing.total_price);
       } catch (e) {
@@ -502,7 +488,7 @@ export function Step2Scheduling() {
                         )
                       </option>
                     )}
-                    {endTimeOptions.map((slot, i) => {
+                    {endTimeOptions.map((slot) => {
                       const hours = Math.round(
                         (timeToMinutes(slot.end) -
                           timeToMinutes(selectedStartTime)) /

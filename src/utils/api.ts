@@ -93,6 +93,7 @@ export const fetchPricing = (params: {
   end_time: string;
   extras?: SelectedExtra[];
   package_id?: number;
+  package_ids?: number[];
   slot_id?: string;
 }) => {
   const qs = new URLSearchParams();
@@ -101,7 +102,11 @@ export const fetchPricing = (params: {
   qs.set("date", params.date);
   qs.set("start_time", params.start_time);
   qs.set("end_time", params.end_time);
-  if (params.package_id) qs.set("package_id", String(params.package_id));
+  if (params.package_ids && params.package_ids.length > 0) {
+    params.package_ids.forEach((id) => qs.append("package_ids[]", String(id)));
+  } else if (params.package_id) {
+    qs.set("package_id", String(params.package_id));
+  }
   if (params.slot_id) qs.set("slot_id", params.slot_id);
   (params.extras ?? []).forEach((e, i) => {
     qs.set(`extras[${i}][extra_id]`, String(e.extra_id));

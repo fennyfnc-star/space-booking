@@ -124,8 +124,11 @@ export function Step3Addons() {
       const includedExtraIds: number[] = [];
       if (pkg.extra_ids && Array.isArray(pkg.extra_ids)) {
         includedExtraIds.push(...pkg.extra_ids);
-      } else if (pkg.extra_id) {
-        includedExtraIds.push(pkg.extra_id);
+      } else {
+        const legacyExtraId = (pkg as any).extra_id;
+        if (legacyExtraId) {
+          includedExtraIds.push(Number(legacyExtraId));
+        }
       }
       if (includedExtraIds.length > 0) {
         console.log(
@@ -178,51 +181,19 @@ export function Step3Addons() {
 
     console.group("💰 STEP3 fetchPricing");
 
-    // Build item_ids - include package ID if selected, but also any additional spaces not in the package
-    const itemIds: number[] = [];
-
-    // Add package ID if it exists
-    if (packageId) {
-      itemIds.push(Number(packageId));
-    }
-
-    // Add any additional spaces that were selected separately (not part of the package)
-    // This allows users to select a package plus additional spaces
-    for (const item of selectedItems) {
-      if (item.type === "space") {
-        // Only add space if it's not already part of the package
-        // If no package is selected, add all spaces
-        if (!packageId) {
-          itemIds.push(Number(item.id));
-        } else {
-          // If package exists, only add spaces that are NOT part of the package
-          // Determine which spaces are in the package
-          const pkgItem = selectedItems.find((i) => i.type === "package") as
-            | Package
-            | undefined;
-          const packageSpaceIds = pkgItem?.space_ids || [];
-
-          // Add the space if it's not in the package
-          if (!packageSpaceIds.includes(Number(item.id))) {
-            itemIds.push(Number(item.id));
-          }
-        }
-      }
-    }
+    // Build item_ids from the explicit selection set.
+    // Packages are passed as package IDs so pricing can apply package rules.
+    const itemIds = selectedItems.map((item) => Number(item.id));
 
     const pricingParams = {
       // NEW SCHEMA: Use arrays instead of singular IDs (maintaining backward compatibility)
       space_id: spaceId || 0,
-      item_ids: [
-        ...useBookingStore.getState().getAllSpaceIds(), 
-        ...useBookingStore.getState().getAllPackageIds()
-      ],
+      item_ids: itemIds,
       date: selectedDate,
       start_time: selectedStartTime,
       end_time: selectedEndTime,
       extras: selectedExtras,
-      // Pass first package ID for extras allowance calculation (the API currently accepts one)
-      package_id: useBookingStore.getState().getAllPackageIds()[0] || undefined,
+      package_ids: useBookingStore.getState().getAllPackageIds(),
     };
     console.log("Params sent to /pricing:", pricingParams);
 

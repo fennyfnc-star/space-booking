@@ -39,6 +39,35 @@ final class AvailabilityService
 	}
 
 	/**
+	 * Resolve the actual space IDs that should be checked for availability.
+	 *
+	 * Package selections are mapped to their included space IDs so every
+	 * availability decision is made against space records, not package records.
+	 */
+	public function resolve_selected_space_ids(array $space_ids, array $package_ids = []): array
+	{
+		$resolved_space_ids = array_values(array_unique(array_filter(array_map('absint', $space_ids))));
+
+		foreach ($package_ids as $package_id) {
+			$package_id = absint($package_id);
+			if (!$package_id) {
+				continue;
+			}
+
+			$package_space_id = (int) get_post_meta($package_id, '_sb_package_space_id', true);
+			if ($package_space_id > 0) {
+				$resolved_space_ids[] = $package_space_id;
+			}
+		}
+
+		$resolved_space_ids = array_values(array_unique(array_filter(array_map('absint', $resolved_space_ids))));
+
+		error_log('AVAIL RESOLVE: space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ', resolved=' . json_encode($resolved_space_ids));
+
+		return $resolved_space_ids;
+	}
+
+	/**
 	 * Get the repository instance (for trait compatibility).
 	 */
 	protected function getRepository(): BookingRepository
@@ -58,9 +87,7 @@ final class AvailabilityService
 	 */
 	public function get_intersection_slots(array $space_ids, string $date, int $step_mins = 60, array $package_ids = []): array
 	{
-		// Frontend sends complete space_ids - just use it directly
-		// package_ids kept for backward compatibility but not used for resolution
-		$all_space_ids_to_check = array_unique($space_ids);
+		$all_space_ids_to_check = $this->resolve_selected_space_ids($space_ids, $package_ids);
 
 		// Early return if no spaces to check
 		if (empty($all_space_ids_to_check)) {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { createBooking } from "@/utils/api";
 
@@ -14,20 +14,7 @@ export function Step5Checkout() {
     setCheckoutData,
     prevStep,
     selectedItems,
-    packageCoverage,
   } = useBookingStore();
-
-  // Get package title for breakdown enrichment
-  const packageTitle = packageCoverage.length > 0 ? packageCoverage[0].packageTitle : null;
-
-  // Get space name for breakdown enrichment
-  const spaceName = (() => {
-    const spaceItem = selectedItems.find((i) => i.type === "space");
-    if (spaceItem) return spaceItem.title;
-    const pkgItem = selectedItems.find((i) => i.type === "package") as any;
-    if (pkgItem?.space_name) return pkgItem.space_name;
-    return "";
-  })();
 
   // Return label as-is from backend
   const enrichBreakdownLabel = (label: string): string => {
@@ -40,26 +27,26 @@ export function Step5Checkout() {
   const handleCheckout = async () => {
     console.log("SB_DEBUG Step5Checkout: ========== START ==========");
 
-    const selectedItemIds = useBookingStore
-      .getState()
-      .selectedItems.map((item) => item.id);
-    const spaceId = selectedItemIds[0] || 0; // lead space
-    const packageId = useBookingStore
-      .getState()
-      .selectedItems.find((i) => i.type === "package")?.id;
-
-    const currentSelectedExtras = useBookingStore.getState().selectedExtras;
+    const state = useBookingStore.getState();
+    const selectedItemIds = state.selectedItems.map((item) => item.id);
+    const spaceIds = state.selectedItems
+      .filter((item) => item.type === "space")
+      .map((item) => Number(item.id));
+    const packageIds = state.selectedItems
+      .filter((item) => item.type === "package")
+      .map((item) => Number(item.id));
+    const currentSelectedExtras = state.selectedExtras;
 
     // DEBUG: Console logs for Step 5 - Pre-validation
-    console.log("SB_DEBUG Step5Checkout: spaceId:", spaceId);
-    console.log("SB_DEBUG Step5Checkout: packageId:", packageId);
+    console.log("SB_DEBUG Step5Checkout: spaceIds:", spaceIds);
+    console.log("SB_DEBUG Step5Checkout: packageIds:", packageIds);
     console.log(
       "SB_DEBUG Step5Checkout: selectedItemIds:",
       JSON.stringify(selectedItemIds),
     );
     console.log(
       "SB_DEBUG Step5Checkout: selectedItems:",
-      JSON.stringify(useBookingStore.getState().selectedItems),
+      JSON.stringify(state.selectedItems),
     );
     console.log(
       "SB_DEBUG Step5Checkout: selectedExtras:",
@@ -73,9 +60,9 @@ export function Step5Checkout() {
       JSON.stringify(customerInfo),
     );
 
-    if (!spaceId) {
-      console.log("SB_DEBUG Step5Checkout: ERROR - No space selected");
-      setError("No space selected.");
+    if (spaceIds.length === 0 && packageIds.length === 0) {
+      console.log("SB_DEBUG Step5Checkout: ERROR - No space or package selected");
+      setError("No space or package selected.");
       return;
     }
 
@@ -86,8 +73,8 @@ export function Step5Checkout() {
 
     console.log("SB_DEBUG Step5Checkout: Calling createBooking API...");
     console.log("SB_DEBUG Step5Checkout: Request payload:", {
-      space_id: spaceId,
-      package_id: packageId,
+      space_ids: spaceIds,
+      package_ids: packageIds,
       selected_item_ids: selectedItemIds,
       date: selectedDate,
       start_time: selectedStartTime,
@@ -101,13 +88,8 @@ export function Step5Checkout() {
 
     try {
       const res = await createBooking({
-        // NEW SCHEMA: Use arrays instead of singular IDs
-        space_ids: selectedItemIds.filter(id => 
-          get().selectedItems.find(item => Number(item.id) === id)?.type === 'space'
-        ),
-        package_ids: selectedItemIds.filter(id => 
-          get().selectedItems.find(item => Number(item.id) === id)?.type === 'package'
-        ),
+        space_ids: spaceIds,
+        package_ids: packageIds,
         selected_item_ids: selectedItemIds,
         date: selectedDate,
         start_time: selectedStartTime,
