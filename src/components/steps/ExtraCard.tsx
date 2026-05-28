@@ -1,5 +1,3 @@
-import React from "react";
-import type { Extra, MergedExtra } from "@/types";
 import { renderExtraPriceDisplay, isMinusDisabled, isPlusDisabled } from "./Step3Addons.utils";
 import type { ExtraCardProps } from "./Step3Addons.types";
 

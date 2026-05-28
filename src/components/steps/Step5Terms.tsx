@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import DOMPurify from "dompurify";
 import { useBookingStore } from "@/store/bookingStore";
-import type { BookingStep } from "@/types";
 
 export function Step5Terms() {
   const { nextStep, prevStep } = useBookingStore();

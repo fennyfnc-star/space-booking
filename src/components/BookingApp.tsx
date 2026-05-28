@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import type { SelectionItem } from "@/types";
 import { fetchSpace, fetchPackages, checkCartHasBooking } from "@/utils/api";

@@ -50,7 +50,7 @@ export function hasConflict(
 /**
  * Generate tooltip for locked item
  */
-export function getTooltip(lockedId: number, candidate: SelectionItem): string {
+export function getTooltip(lockedId: number, _candidate: SelectionItem): string {
   return `Conflicts with current selection (contains Space #${lockedId})`;
 }
 

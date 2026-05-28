@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { getLockedResourceIds } from "./conflicts";
-import type { SelectionItem } from "@/types";
 
 export function useConflicts() {
   const selectedItems = useBookingStore((state) => state.selectedItems);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 
 interface SelectedItem {
@@ -221,10 +221,18 @@ export function Step7Confirmation() {
               )}
             
             {/* Display package inclusions if booking includes a package */}
-            {bookingData.package_id && packageData && (
-              <tr>
-                <th>Package Inclusions</th>
-                <td>
+          {bookingData.package_id && packageData && (
+            <tr>
+              <th>Package Inclusions</th>
+              <td>
+                {(() => {
+                  const selectedSpaces = new Map(
+                    (bookingData._selected_items ?? [])
+                      .filter((item) => item.type === "space")
+                      .map((item) => [item.id, item.title]),
+                  );
+
+                  return (
                   <div className="sb-package-breakdown">
                     <div className="text-sm mb-2">
                       <strong>{packageData.title}</strong> includes:
@@ -232,22 +240,7 @@ export function Step7Confirmation() {
                     {packageData.space_ids && packageData.space_ids.length > 0 && (
                       <div className="mb-2">
                         <span className="font-medium">Spaces:</span> {packageData.space_ids
-                          .map((spaceId: number) => {
-                            const space = typeof bookingData._space_titles !== 'undefined' 
-                              && bookingData._space_titles 
-                              && bookingData._space_titles.length > 0
-                              ? bookingData._space_titles.find((_, index) => 
-                                  bookingData._selected_items?.find(
-                                    (item: SelectedItem) => item.id === spaceId
-                                  )
-                                )
-                              : `Space #${spaceId}`;
-                            // Find space title from the selected items
-                            const selectedItem = bookingData._selected_items?.find(
-                              (item: SelectedItem) => item.id === spaceId
-                            );
-                            return selectedItem ? selectedItem.title : `Space #${spaceId}`;
-                          })
+                          .map((spaceId: number) => selectedSpaces.get(spaceId) ?? `Space #${spaceId}`)
                           .join(', ')}
                       </div>
                     )}
@@ -265,6 +258,8 @@ export function Step7Confirmation() {
                       </div>
                     )}
                   </div>
+                  );
+                })()}
                 </td>
               </tr>
             )}

@@ -595,7 +595,7 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     if (!exists) return;
 
     // Get included_qty for this extra from packageCoverage
-    const { packageCoverage, availableExtras, selectedItems } = get();
+    const { packageCoverage, selectedItems } = get();
     let includedQty = 0;
     
     // Find included_qty from packages
