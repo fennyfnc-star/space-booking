@@ -411,57 +411,6 @@ export function Step6Confirmation() {
         </tr>
       )}
 
-            {/* Display package inclusions if booking includes a package */}
-            {getBookingPackageIds().length > 0 && packageData && (
-            <tr>
-              <th>Package Inclusions</th>
-              <td>
-                {(() => {
-                  const selectedSpaces = new Map(
-                    (bookingData._selected_items ?? [])
-                      .filter((item) => item.type === "sb_space")
-                      .map((item) => [item.id, item.title]),
-                  );
-                  const packageSpaceIds = getPackageSpaceIds();
-
-                  const packageExtraNames =
-                    Array.isArray(packageData.extra_ids) && packageData.extra_ids.length > 0
-                      ? packageData.extra_ids.map((extraId: number) => getExtraTitleById(extraId))
-                      : [];
-
-                  return (
-                    <div className="sb-package-breakdown">
-                      <p style={{ margin: "0 0 8px 0" }}>
-                        <strong>{packageData.title}</strong> includes:
-                      </p>
-                      <ul className="sb-confirm-extras" style={{ marginTop: 0 }}>
-                        {packageSpaceIds.length > 0 && (
-                          <li>
-                            <strong>Spaces:</strong>{" "}
-                            {packageSpaceIds
-                              .map((spaceId: number, index: number) => {
-                                const title =
-                                  selectedSpaces.get(spaceId) ??
-                                  (index === 0
-                                    ? packageData.space_name || `Space #${spaceId}`
-                                    : `Space #${spaceId}`);
-                                return `${title} (Package)`;
-                              })
-                              .join(", ")}
-                          </li>
-                        )}
-                        {packageExtraNames.length > 0 && (
-                          <li>
-                            <strong>Extras:</strong> {packageExtraNames.join(", ")}
-                          </li>
-                        )}
-                      </ul>
-                    </div>
-                  );
-                })()}
-                </td>
-              </tr>
-            )}
             <tr>
               <th>Date</th>
               <td>{bookingData.booking_date}</td>

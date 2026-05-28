@@ -99,16 +99,76 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         }
     }
 
-    // Build price breakdown (supports both old and new shapes).
-    $breakdown_html = '';
+    // Build grouped price breakdown by category.
+    $grouped_rows = [
+        'space' => [],
+        'package' => [],
+        'extra' => [],
+        'other' => [],
+    ];
+    $grouped_totals = [
+        'space' => 0.0,
+        'package' => 0.0,
+        'extra' => 0.0,
+        'other' => 0.0,
+    ];
+
     foreach ($price_breakdown as $item) {
         $label = (string) ($item['label'] ?? $item['name'] ?? __('Line Item', 'space-booking'));
         $amount = isset($item['amount']) ? (float) $item['amount'] : (isset($item['price']) ? (float) $item['price'] : 0.0);
-        $breakdown_html .= '<tr>' .
-            '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html($label) . '</td>' .
-            '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price($amount)) . '</td>' .
-            '</tr>';
+        $context_type = strtolower((string) ($item['context']['type'] ?? ''));
+        $target_group = 'other';
+
+        if ($context_type === 'space') {
+            $target_group = 'space';
+        } elseif ($context_type === 'package') {
+            $target_group = 'package';
+        } elseif ($context_type === 'extra') {
+            $target_group = 'extra';
+        } else {
+            // Legacy fallback inference from label when context is missing.
+            $label_lc = strtolower($label);
+            if (strpos($label_lc, 'extra') !== false) {
+                $target_group = 'extra';
+            } elseif (strpos($label_lc, 'package') !== false) {
+                $target_group = 'package';
+            } elseif (strpos($label_lc, 'space') !== false) {
+                $target_group = 'space';
+            }
+        }
+
+        $grouped_rows[$target_group][] = [
+            'label' => $label,
+            'amount' => $amount,
+        ];
+        $grouped_totals[$target_group] += $amount;
     }
+
+    $breakdown_html = '';
+    $append_group_rows = static function (string $title, array $rows, float $subtotal): string {
+        if (empty($rows)) {
+            return '';
+        }
+
+        $html = '<tr><td colspan="2" style="text-align:left;padding:10px 8px;background:#fafafa;border-top:1px solid #eee;border-bottom:1px solid #eee;font-weight:700;">' . esc_html($title) . '</td></tr>';
+        foreach ($rows as $row) {
+            $html .= '<tr>' .
+                '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html((string) $row['label']) . '</td>' .
+                '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price((float) $row['amount'])) . '</td>' .
+                '</tr>';
+        }
+        $html .= '<tr>' .
+            '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;"><em>' . esc_html__('Subtotal', 'space-booking') . ' - ' . esc_html($title) . '</em></td>' .
+            '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;color:#555;"><em>' . wp_kses_post(wc_price($subtotal)) . '</em></td>' .
+            '</tr>';
+
+        return $html;
+    };
+
+    $breakdown_html .= $append_group_rows(__('Spaces', 'space-booking'), $grouped_rows['space'], $grouped_totals['space']);
+    $breakdown_html .= $append_group_rows(__('Packages', 'space-booking'), $grouped_rows['package'], $grouped_totals['package']);
+    $breakdown_html .= $append_group_rows(__('Extras', 'space-booking'), $grouped_rows['extra'], $grouped_totals['extra']);
+    $breakdown_html .= $append_group_rows(__('Other Charges', 'space-booking'), $grouped_rows['other'], $grouped_totals['other']);
 
     if ($breakdown_html === '') {
         $base_price = (float) ($booking['base_price'] ?? 0);

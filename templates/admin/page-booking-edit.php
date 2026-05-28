@@ -179,61 +179,59 @@ $spaces_subtotal = 0.0;
 $packages_subtotal = 0.0;
 $extras_subtotal = 0.0;
 $pricing_source = 'booking';
-if ($linked_order) {
-    $pricing_source = 'woocommerce';
-    foreach ($linked_order->get_items('line_item') as $item) {
-        $line_total = (float) $item->get_total();
-        $line_name = strtolower(trim((string) $item->get_name()));
-        $item_type = (string) $item->get_meta('sb_item_type', true);
-        $extra_id = (int) $item->get_meta('sb_extra_id', true);
+$itemized_breakdown = [];
+$extras_breakdown = [];
 
-        if ($item_type === 'sb_space') {
-            $spaces_subtotal += $line_total;
-            continue;
-        }
+// Recompute from canonical pricing service so subtotals and line breakdown match booking logic.
+$selected_item_ids = array_map(static function ($item) {
+    return (int) ($item['id'] ?? 0);
+}, $booking['_selected_items'] ?? []);
+$selected_item_ids = array_values(array_filter($selected_item_ids));
+$package_ids = array_map(static function ($item) {
+    return (int) ($item['id'] ?? 0);
+}, $linked_packages);
+$package_ids = array_values(array_filter($package_ids));
+$extras_for_pricing = array_map(static function ($extra) {
+    return [
+        'extra_id' => (int) ($extra['extra_id'] ?? 0),
+        'quantity' => max(1, (int) ($extra['quantity'] ?? 1)),
+    ];
+}, $linked_extras);
+$extras_for_pricing = array_values(array_filter($extras_for_pricing, static function ($extra) {
+    return $extra['extra_id'] > 0;
+}));
+
+if (!empty($selected_item_ids)) {
+    $pricing_service = new \SpaceBooking\Services\PricingService();
+    $computed = $pricing_service->calculate(
+        null,
+        (string) ($booking['booking_date'] ?? ''),
+        (string) ($booking['start_time'] ?? ''),
+        (string) ($booking['end_time'] ?? ''),
+        $extras_for_pricing,
+        $selected_item_ids,
+        $package_ids,
+        null
+    );
+
+    foreach (($computed['items'] ?? []) as $item) {
+        $item_type = (string) ($item['type'] ?? '');
+        $item_subtotal = (float) ($item['subtotal'] ?? 0);
         if ($item_type === 'sb_package') {
-            $packages_subtotal += $line_total;
-            continue;
+            $packages_subtotal += $item_subtotal;
+        } elseif ($item_type === 'sb_space') {
+            $spaces_subtotal += $item_subtotal;
         }
-        if ($extra_id > 0) {
-            $extras_subtotal += $line_total;
-            continue;
-        }
-
-        $is_extra = false;
-        foreach ($linked_extras as $extra) {
-            $extra_name = strtolower(trim((string) ($extra['extra_name'] ?? '')));
-            if ($extra_name !== '' && strpos($line_name, $extra_name) !== false) {
-                $is_extra = true;
-                break;
-            }
-        }
-        if ($is_extra) {
-            $extras_subtotal += $line_total;
-            continue;
-        }
-
-        $is_package = false;
-        foreach ($linked_packages as $pkg) {
-            $pkg_name = strtolower(trim((string) ($pkg['title'] ?? '')));
-            if ($pkg_name !== '' && strpos($line_name, $pkg_name) !== false) {
-                $is_package = true;
-                break;
-            }
-        }
-        if ($is_package) {
-            $packages_subtotal += $line_total;
-            continue;
-        }
-
-        $spaces_subtotal += $line_total;
+        $itemized_breakdown[] = $item;
     }
+    $extras_subtotal = (float) ($computed['extras_price'] ?? 0);
+    $extras_breakdown = $computed['extras_breakdown'] ?? [];
+    $price_breakdown = $computed['breakdown'] ?? $price_breakdown;
 } else {
+    // Legacy fallback if selected items are not available.
     $spaces_subtotal = (float) ($booking['base_price'] ?? 0);
     $extras_subtotal = (float) ($booking['extras_price'] ?? 0);
-    if (!empty($linked_packages)) {
-        $packages_subtotal = max(0, (float) ($booking['modifier_price'] ?? 0));
-    }
+    $packages_subtotal = !empty($linked_packages) ? max(0, (float) ($booking['modifier_price'] ?? 0)) : 0.0;
 }
 $calculated_total = $spaces_subtotal + $packages_subtotal + $extras_subtotal;
 $display_total = $linked_order ? (float) $linked_order->get_total() : (float) ($booking['total_price'] ?? $calculated_total);
@@ -440,7 +438,7 @@ $status_color = [
             <?php else: ?>
             <div><strong>Space:</strong> <?php echo esc_html($booking['space_title'] ?? 'N/A'); ?></div>
             <?php endif; ?>
-            
+
             <?php if (!empty($linked_packages)): ?>
             <div style="grid-column: 1 / -1;">
                 <strong>📦 Packages (<?php echo count($linked_packages); ?>):</strong>
@@ -453,7 +451,7 @@ $status_color = [
                 </ul>
             </div>
             <?php endif; ?>
-            
+
             <div><strong>Date:</strong> <?php echo esc_html($booking['booking_date']); ?></div>
             <div><strong>Time:</strong>
                 <?php echo esc_html(sb_format_time_12hour($booking['start_time']) . ' - ' . sb_format_time_12hour($booking['end_time'])); ?>
@@ -472,9 +470,10 @@ $status_color = [
             <div>
                 <strong>WooCommerce Order:</strong>
                 <?php if ($linked_order): ?>
-                    <a href="<?php echo esc_url($order_admin_link); ?>">#<?php echo esc_html($order_number ?: $linked_order->get_id()); ?></a>
+                <a
+                    href="<?php echo esc_url($order_admin_link); ?>">#<?php echo esc_html($order_number ?: $linked_order->get_id()); ?></a>
                 <?php else: ?>
-                    N/A
+                N/A
                 <?php endif; ?>
             </div>
             <div><strong>Order Status:</strong> <?php echo esc_html($order_status ?: 'N/A'); ?></div>
@@ -482,10 +481,16 @@ $status_color = [
             <div><strong>Payment Method:</strong> <?php echo esc_html($order_payment_method); ?></div>
             <?php endif; ?>
             <?php if ($linked_order): ?>
-            <div><strong>Order Date:</strong> <?php echo esc_html($linked_order->get_date_created() ? $linked_order->get_date_created()->date_i18n('Y-m-d H:i') : 'N/A'); ?></div>
-            <div><strong>Transaction ID:</strong> <?php echo esc_html($linked_order->get_transaction_id() ?: 'N/A'); ?></div>
-            <div><strong>Customer ID:</strong> <?php echo esc_html($linked_order->get_customer_id() ? '#' . $linked_order->get_customer_id() : 'Guest'); ?></div>
-            <div><strong>Payment Status:</strong> <?php echo esc_html($linked_order->is_paid() ? 'Paid' : 'Unpaid'); ?></div>
+            <div><strong>Order Date:</strong>
+                <?php echo esc_html($linked_order->get_date_created() ? $linked_order->get_date_created()->date_i18n('Y-m-d H:i') : 'N/A'); ?>
+            </div>
+            <div><strong>Transaction ID:</strong> <?php echo esc_html($linked_order->get_transaction_id() ?: 'N/A'); ?>
+            </div>
+            <div><strong>Customer ID:</strong>
+                <?php echo esc_html($linked_order->get_customer_id() ? '#' . $linked_order->get_customer_id() : 'Guest'); ?>
+            </div>
+            <div><strong>Payment Status:</strong> <?php echo esc_html($linked_order->is_paid() ? 'Paid' : 'Unpaid'); ?>
+            </div>
             <?php endif; ?>
             <?php if ($customer_notes !== ''): ?>
             <div style="grid-column: 1 / -1;"><strong>Notes:</strong> <?php echo esc_html($customer_notes); ?></div>
@@ -497,16 +502,22 @@ $status_color = [
             <div style="grid-column: 1 / -1;">
                 <strong>Billing Details:</strong><br>
                 <?php echo wp_kses_post($linked_order->get_formatted_billing_address() ?: 'N/A'); ?><br>
-                <span><strong>Company:</strong> <?php echo esc_html($linked_order->get_billing_company() ?: 'N/A'); ?></span><br>
-                <span><strong>Email:</strong> <?php echo esc_html($linked_order->get_billing_email() ?: 'N/A'); ?></span><br>
-                <span><strong>Phone:</strong> <?php echo esc_html($linked_order->get_billing_phone() ?: 'N/A'); ?></span>
+                <span><strong>Company:</strong>
+                    <?php echo esc_html($linked_order->get_billing_company() ?: 'N/A'); ?></span><br>
+                <span><strong>Email:</strong>
+                    <?php echo esc_html($linked_order->get_billing_email() ?: 'N/A'); ?></span><br>
+                <span><strong>Phone:</strong>
+                    <?php echo esc_html($linked_order->get_billing_phone() ?: 'N/A'); ?></span>
             </div>
             <div style="grid-column: 1 / -1;">
                 <strong>Shipping Details:</strong><br>
                 <?php echo wp_kses_post($linked_order->get_formatted_shipping_address() ?: 'N/A'); ?><br>
-                <span><strong>Recipient:</strong> <?php echo esc_html(trim($linked_order->get_shipping_first_name() . ' ' . $linked_order->get_shipping_last_name()) ?: 'N/A'); ?></span><br>
-                <span><strong>Company:</strong> <?php echo esc_html($linked_order->get_shipping_company() ?: 'N/A'); ?></span><br>
-                <span><strong>Phone:</strong> <?php echo esc_html(method_exists($linked_order, 'get_shipping_phone') ? ($linked_order->get_shipping_phone() ?: 'N/A') : 'N/A'); ?></span>
+                <span><strong>Recipient:</strong>
+                    <?php echo esc_html(trim($linked_order->get_shipping_first_name() . ' ' . $linked_order->get_shipping_last_name()) ?: 'N/A'); ?></span><br>
+                <span><strong>Company:</strong>
+                    <?php echo esc_html($linked_order->get_shipping_company() ?: 'N/A'); ?></span><br>
+                <span><strong>Phone:</strong>
+                    <?php echo esc_html(method_exists($linked_order, 'get_shipping_phone') ? ($linked_order->get_shipping_phone() ?: 'N/A') : 'N/A'); ?></span>
             </div>
             <?php endif; ?>
         </div>
@@ -532,15 +543,16 @@ $status_color = [
                 </ul>
             </div>
             <?php endif; ?>
-            
+
+
             <?php if (!empty($price_breakdown)): ?>
             <div style="margin-bottom:16px;">
                 <strong>Detailed Breakdown:</strong>
                 <ul class="sb-extras-list" style="margin-top:8px;">
                     <?php foreach ($price_breakdown as $item): ?>
                     <li class="sb-extra-item">
-                        <span><?php echo esc_html($item['name']); ?></span>
-                        <span><?php echo $format_money($item['price']); ?></span>
+                        <span><?php echo esc_html($item['label'] ?? $item['name'] ?? 'Line Item'); ?></span>
+                        <span><?php echo $format_money($item['amount'] ?? $item['price'] ?? 0); ?></span>
                     </li>
                     <?php endforeach; ?>
                 </ul>
@@ -550,37 +562,34 @@ $status_color = [
             <div style="margin-bottom:16px;">
                 <strong>Subtotal by Type (<?php echo esc_html(ucfirst($pricing_source)); ?>):</strong>
                 <ul class="sb-extras-list" style="margin-top:8px;">
-                    <li class="sb-extra-item"><span>Spaces Subtotal</span><span><?php echo $format_money($spaces_subtotal); ?></span></li>
-                    <li class="sb-extra-item"><span>Packages Subtotal</span><span><?php echo $format_money($packages_subtotal); ?></span></li>
-                    <li class="sb-extra-item"><span>Extras Subtotal</span><span><?php echo $format_money($extras_subtotal); ?></span></li>
-                    <li class="sb-extra-item"><span>Calculated Subtotal</span><span><?php echo $format_money($calculated_total); ?></span></li>
+                    <li class="sb-extra-item"><span>Spaces
+                            Subtotal</span><span><?php echo $format_money($spaces_subtotal); ?></span></li>
+                    <li class="sb-extra-item"><span>Packages
+                            Subtotal</span><span><?php echo $format_money($packages_subtotal); ?></span></li>
+                    <li class="sb-extra-item"><span>Extras
+                            Subtotal</span><span><?php echo $format_money($extras_subtotal); ?></span></li>
+                    <li class="sb-extra-item"><span>Calculated
+                            Subtotal</span><span><?php echo $format_money($calculated_total); ?></span></li>
                     <?php if ($linked_order): ?>
-                    <li class="sb-extra-item"><span>Discount</span><span>-<?php echo $format_money($linked_order->get_discount_total()); ?></span></li>
-                    <li class="sb-extra-item"><span>Shipping</span><span><?php echo $format_money($linked_order->get_shipping_total()); ?></span></li>
-                    <li class="sb-extra-item"><span>Tax</span><span><?php echo $format_money($linked_order->get_total_tax()); ?></span></li>
+                    <li class="sb-extra-item">
+                        <span>Discount</span><span>-<?php echo $format_money($linked_order->get_discount_total()); ?></span>
+                    </li>
+                    <li class="sb-extra-item">
+                        <span>Shipping</span><span><?php echo $format_money($linked_order->get_shipping_total()); ?></span>
+                    </li>
+                    <li class="sb-extra-item">
+                        <span>Tax</span><span><?php echo $format_money($linked_order->get_total_tax()); ?></span>
+                    </li>
                     <?php endif; ?>
                 </ul>
             </div>
 
-            <div style="border-top:2px solid #7A48B0; padding-top:12px; font-weight:bold; font-size:18px; color:#7A48B0;">
+            <div
+                style="border-top:2px solid #7A48B0; padding-top:12px; font-weight:bold; font-size:18px; color:#7A48B0;">
                 <span>Total: <?php echo $format_money($display_total); ?></span>
             </div>
         </div>
     </div>
-
-    <?php if (!empty($linked_extras)): ?>
-    <div class="sb-section">
-        <h3>➕ Extras (<?php echo count($linked_extras); ?>)</h3>
-        <ul class="sb-extras-list">
-            <?php foreach ($linked_extras as $extra): ?>
-            <li class="sb-extra-item">
-                <span>📦 <?php echo esc_html($extra['extra_name']); ?> ×<?php echo $extra['quantity']; ?></span>
-                <span><?php echo $format_money($extra['quantity'] * $extra['unit_price']); ?></span>
-            </li>
-            <?php endforeach; ?>
-        </ul>
-    </div>
-    <?php endif; ?>
 
     <div class="sb-section">
         <h3>⚙️ Update Status</h3>
@@ -663,7 +672,8 @@ jQuery(document).ready(function($) {
                 // Check for email failure
                 const errorData = res.data;
                 if (errorData && errorData.email_failed) {
-                    showToast('❌ ' + (errorData.message || 'Failed to send confirmation email'), 'error');
+                    showToast('❌ ' + (errorData.message || 'Failed to send confirmation email'),
+                        'error');
                 } else {
                     showToast('❌ ' + (errorData || 'Update failed'), 'error');
                 }
