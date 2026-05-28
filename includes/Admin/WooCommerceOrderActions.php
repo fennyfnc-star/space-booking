@@ -43,13 +43,12 @@ final class WooCommerceOrderActions
         $repo = new BookingRepository();
         global $wpdb;
 
-        // Search for bookings by meta_value containing this order ID or customer email
+        // Search for bookings by linked order ID or customer email.
         $customer_email = $order->get_billing_email();
         $bookings = $wpdb->get_results($wpdb->prepare("
-            SELECT b.id, b.space_id, b.booking_date, b.start_time, b.end_time, b.status, b.customer_name, b.customer_email
+            SELECT b.id, b.order_id, b.space_id, b.booking_date, b.start_time, b.end_time, b.status, b.customer_name, b.customer_email
             FROM {$wpdb->prefix}sb_bookings b
-            LEFT JOIN {$wpdb->prefix}sb_booking_meta bm ON b.id = bm.booking_id AND bm.meta_key = '_wc_order_id'
-            WHERE bm.meta_value = %s OR b.customer_email = %s
+            WHERE b.order_id = %d OR b.customer_email = %s
             ORDER BY b.id DESC
             LIMIT 10
         ", $order_id, $customer_email), ARRAY_A);

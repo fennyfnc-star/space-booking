@@ -120,8 +120,6 @@ final class WooCommerceService
             'sb_date' => $booking_data['date'],
             'sb_start_time' => $booking_data['start_time'],
             'sb_end_time' => $booking_data['end_time'],
-            'sb_customer_name' => $booking_data['customer_name'],
-            'sb_customer_email' => $booking_data['customer_email'],
             'sb_extras' => wp_json_encode($extras),
             'sb_package_inclusions' => wp_json_encode($package_inclusions),
         ];

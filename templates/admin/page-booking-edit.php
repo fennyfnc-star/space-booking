@@ -116,6 +116,58 @@ if (!empty($inclusions)) {
     }));
 }
 
+// Resolve linked WooCommerce order if available.
+$linked_order = null;
+if (!empty($booking['order_id']) && function_exists('wc_get_order')) {
+    $linked_order = wc_get_order((int) $booking['order_id']);
+}
+if (!$linked_order && function_exists('wc_get_orders')) {
+    $orders = wc_get_orders([
+        'limit' => 1,
+        'return' => 'objects',
+        'meta_query' => [
+            [
+                'key' => '_sb_booking_id',
+                'value' => $booking_id,
+                'compare' => '=',
+            ],
+        ],
+    ]);
+    if (!empty($orders)) {
+        $linked_order = $orders[0];
+    }
+}
+
+// Canonical contact + order fields shown once in the booking editor.
+$customer_name = trim((string) ($booking['customer_name'] ?? ''));
+$customer_email = trim((string) ($booking['customer_email'] ?? ''));
+$customer_phone = trim((string) ($booking['customer_phone'] ?? ''));
+$customer_notes = trim((string) ($booking['notes'] ?? ''));
+$marketing_source = trim((string) ($repo->get_meta($booking_id, '_sb_marketing_source') ?? ''));
+
+if ($linked_order) {
+    $order_name = trim((string) $linked_order->get_formatted_billing_full_name());
+    $order_email = trim((string) $linked_order->get_billing_email());
+    $order_phone = trim((string) $linked_order->get_billing_phone());
+    if ($customer_name === '') {
+        $customer_name = $order_name;
+    }
+    if ($customer_email === '') {
+        $customer_email = $order_email;
+    }
+    if ($customer_phone === '') {
+        $customer_phone = $order_phone;
+    }
+    if ($customer_notes === '') {
+        $customer_notes = trim((string) $linked_order->get_customer_note());
+    }
+}
+
+$order_number = $linked_order ? (string) $linked_order->get_order_number() : '';
+$order_status = $linked_order ? wc_get_order_status_name($linked_order->get_status()) : '';
+$order_payment_method = $linked_order ? (string) $linked_order->get_payment_method_title() : '';
+$order_admin_link = $linked_order ? admin_url('post.php?post=' . $linked_order->get_id() . '&action=edit') : '';
+
 // Status options
 $statuses = ['pending' => 'Pending', 'in_review' => 'In Review', 'confirmed' => 'Confirmed'];
 $status_color = [
@@ -337,18 +389,33 @@ $status_color = [
                 <?php echo esc_html(sb_format_time_12hour($booking['start_time']) . ' - ' . sb_format_time_12hour($booking['end_time'])); ?>
             </div>
             <div><strong>Duration:</strong> <?php echo esc_html($booking['duration_hours']); ?>h</div>
-            <div><strong>Customer:</strong> <?php echo esc_html($booking['customer_name']); ?></div>
-            <div><strong>Email:</strong> <?php echo esc_html($booking['customer_email']); ?></div>
-            <?php if ($booking['customer_phone']): ?><div><strong>Phone:</strong>
-                <?php echo esc_html($booking['customer_phone']); ?></div><?php endif; ?>
-            <?php if ($booking['notes']): ?><div style="grid-column: 1 / -1;"><strong>Notes:</strong> <?php echo esc_html($booking['notes']); ?>
+        </div>
+    </div>
+
+    <div class="sb-section">
+        <h3>👤 Customer & Order</h3>
+        <div class="sb-info-grid">
+            <div><strong>Name:</strong> <?php echo esc_html($customer_name ?: 'N/A'); ?></div>
+            <div><strong>Email:</strong> <?php echo esc_html($customer_email ?: 'N/A'); ?></div>
+            <div><strong>Phone:</strong> <?php echo esc_html($customer_phone ?: 'N/A'); ?></div>
+            <div><strong>Booking ID:</strong> #<?php echo esc_html($booking['id']); ?></div>
+            <div>
+                <strong>WooCommerce Order:</strong>
+                <?php if ($linked_order): ?>
+                    <a href="<?php echo esc_url($order_admin_link); ?>">#<?php echo esc_html($order_number ?: $linked_order->get_id()); ?></a>
+                <?php else: ?>
+                    N/A
+                <?php endif; ?>
             </div>
+            <div><strong>Order Status:</strong> <?php echo esc_html($order_status ?: 'N/A'); ?></div>
+            <?php if ($order_payment_method): ?>
+            <div><strong>Payment Method:</strong> <?php echo esc_html($order_payment_method); ?></div>
             <?php endif; ?>
-            <?php
-            $marketing = $repo->get_meta($booking_id, '_sb_marketing_source');
-            if ($marketing):
-                ?>
-            <div><strong>📈 How did you hear about us?</strong> <?php echo esc_html($marketing); ?></div>
+            <?php if ($customer_notes !== ''): ?>
+            <div style="grid-column: 1 / -1;"><strong>Notes:</strong> <?php echo esc_html($customer_notes); ?></div>
+            <?php endif; ?>
+            <?php if ($marketing_source !== ''): ?>
+            <div><strong>📈 How did you hear about us?</strong> <?php echo esc_html($marketing_source); ?></div>
             <?php endif; ?>
         </div>
     </div>

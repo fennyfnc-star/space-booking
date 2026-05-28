@@ -616,6 +616,22 @@ class BookingRepository
 	}
 
 	/**
+	 * Persist the WooCommerce order reference for a booking.
+	 */
+	public function link_order(int $booking_id, int $order_id): void
+	{
+		global $wpdb;
+
+		$wpdb->update(
+			$wpdb->prefix . 'sb_bookings',
+			['order_id' => $order_id],
+			['id' => $booking_id],
+			['%d'],
+			['%d']
+		);
+	}
+
+	/**
 	 * NEW: Get all spaces linked to a booking.
 	 */
 	public function get_linked_spaces(int $booking_id): array

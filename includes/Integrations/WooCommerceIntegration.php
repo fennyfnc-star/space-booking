@@ -128,6 +128,94 @@ final class WooCommerceIntegration
     }
 
     /**
+     * Mirror booking contact data into WooCommerce order data once.
+     * This keeps the order usable for customer support without repeating the same
+     * values on every line item.
+     */
+    private static function sync_booking_contact_to_order(\WC_Order $order, int $booking_id, BookingRepository $repo): void
+    {
+        $booking = $repo->find($booking_id);
+        if (!$booking) {
+            return;
+        }
+
+        $changed = false;
+        $booking_name = trim((string) ($booking['customer_name'] ?? ''));
+        $booking_email = trim((string) ($booking['customer_email'] ?? ''));
+        $booking_phone = trim((string) ($booking['customer_phone'] ?? ''));
+        $booking_notes = trim((string) ($booking['notes'] ?? ''));
+        $marketing_source = trim((string) $repo->get_meta($booking_id, '_sb_marketing_source'));
+
+        if ($booking_name !== '') {
+            [$first_name, $last_name] = self::split_customer_name($booking_name);
+            if ($first_name !== '' && $order->get_billing_first_name() !== $first_name) {
+                $order->set_billing_first_name($first_name);
+                $changed = true;
+            }
+            if ($last_name !== '' && $order->get_billing_last_name() !== $last_name) {
+                $order->set_billing_last_name($last_name);
+                $changed = true;
+            }
+        }
+
+        if ($booking_email !== '' && $order->get_billing_email() !== $booking_email) {
+            $order->set_billing_email($booking_email);
+            $changed = true;
+        }
+
+        if ($booking_phone !== '' && $order->get_billing_phone() !== $booking_phone) {
+            $order->set_billing_phone($booking_phone);
+            $changed = true;
+        }
+
+        $contact_payload = [
+            'booking_id' => $booking_id,
+            'name' => $booking_name,
+            'email' => $booking_email,
+            'phone' => $booking_phone,
+            'notes' => $booking_notes,
+            'marketing_source' => $marketing_source,
+        ];
+
+        $order->update_meta_data('_sb_booking_contact', wp_json_encode($contact_payload));
+
+        if ($booking_notes !== '') {
+            $order->update_meta_data('_sb_booking_notes', $booking_notes);
+            if ($order->get_customer_note() !== $booking_notes) {
+                $order->set_customer_note($booking_notes);
+                $changed = true;
+            }
+        }
+
+        if ($marketing_source !== '') {
+            $order->update_meta_data('_sb_marketing_source', $marketing_source);
+        }
+
+        $order->save();
+    }
+
+    /**
+     * Split a full customer name into first and last parts.
+     */
+    private static function split_customer_name(string $full_name): array
+    {
+        $full_name = trim(preg_replace('/\s+/', ' ', $full_name) ?? '');
+        if ($full_name === '') {
+            return ['', ''];
+        }
+
+        $parts = preg_split('/\s+/', $full_name) ?: [];
+        if (count($parts) === 1) {
+            return [$parts[0], ''];
+        }
+
+        $first_name = array_shift($parts);
+        $last_name = implode(' ', $parts);
+
+        return [$first_name ?: '', $last_name ?: ''];
+    }
+
+    /**
      * Helper to get booking ID from order meta or line items
      */
     private static function get_booking_id_from_order($order): ?int
@@ -276,6 +364,9 @@ final class WooCommerceIntegration
             $order->update_meta_data('_sb_booking_id', $session_booking);
             $order->save();
             error_log('SpaceBooking WC: Saved session booking_id ' . $session_booking . ' to order #' . $order_id);
+            $repo = new BookingRepository();
+            $repo->link_order((int) $session_booking, (int) $order_id);
+            self::sync_booking_contact_to_order($order, (int) $session_booking, $repo);
             WC()->session->set('sb_pending_booking_id', null);
             return;
         }
@@ -284,6 +375,9 @@ final class WooCommerceIntegration
         $existing_booking_id = $order->get_meta('_sb_booking_id');
         if ($existing_booking_id) {
             error_log('SpaceBooking WC: Booking ID already in order meta: ' . $existing_booking_id);
+            $repo = new BookingRepository();
+            $repo->link_order((int) $existing_booking_id, (int) $order_id);
+            self::sync_booking_contact_to_order($order, (int) $existing_booking_id, $repo);
             return;
         }
 
@@ -301,6 +395,9 @@ final class WooCommerceIntegration
                 if ($enriched) {
                     $enriched_breakdown = $enriched;
                 }
+                $repo = new BookingRepository();
+                $repo->link_order((int) $booking_id, (int) $order_id);
+                self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
                 break;
             }
         }
@@ -321,6 +418,9 @@ final class WooCommerceIntegration
                     $order->update_meta_data('_sb_booking_id', $booking_id);
                     $order->save();
                     error_log('SpaceBooking WC: Saved from TAXABLE line item meta booking_id ' . $booking_id . ' to order #' . $order_id);
+                    $repo = new BookingRepository();
+                    $repo->link_order((int) $booking_id, (int) $order_id);
+                    self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
                     return;
                 }
             }
@@ -380,6 +480,7 @@ final class WooCommerceIntegration
         }
 
         // Sync billing details from WooCommerce order if booking lacks customer info
+        self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
         self::sync_billing_details_to_booking($order, $booking_id, $repo);
 
         if ($booking['status'] === 'pending') {
@@ -410,6 +511,8 @@ final class WooCommerceIntegration
         $needs_update = false;
         $customer_name = '';
         $customer_email = '';
+        $customer_phone = '';
+        $booking_notes = '';
 
         if (empty($booking['customer_name']) || $booking['customer_name'] === 'Guest' || $booking['customer_name'] === '') {
             // Get billing name from WC order
@@ -444,6 +547,24 @@ final class WooCommerceIntegration
             $customer_email = $booking['customer_email'];
         }
 
+        if (empty($booking['customer_phone']) || $booking['customer_phone'] === '') {
+            $customer_phone = $order->get_billing_phone();
+            if (!empty($customer_phone)) {
+                $needs_update = true;
+            }
+        } else {
+            $customer_phone = $booking['customer_phone'];
+        }
+
+        if (empty($booking['notes']) || $booking['notes'] === '') {
+            $booking_notes = (string) $order->get_customer_note();
+            if (!empty($booking_notes)) {
+                $needs_update = true;
+            }
+        } else {
+            $booking_notes = $booking['notes'];
+        }
+
         if ($needs_update) {
             global $wpdb;
             $result = $wpdb->update(
@@ -451,9 +572,11 @@ final class WooCommerceIntegration
                 [
                     'customer_name' => $customer_name,
                     'customer_email' => $customer_email,
+                    'customer_phone' => $customer_phone,
+                    'notes' => $booking_notes,
                 ],
                 ['id' => $booking_id],
-                ['%s', '%s'],
+                ['%s', '%s', '%s', '%s'],
                 ['%d']
             );
 
