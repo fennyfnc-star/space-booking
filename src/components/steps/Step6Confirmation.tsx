@@ -21,6 +21,11 @@ interface PackageInclusion {
   label?: string;
 }
 
+interface ExtraCatalogItem {
+  id: number;
+  title: string;
+}
+
 interface PriceBreakdownItem {
   label: string;
   amount: number;
@@ -71,6 +76,7 @@ export function Step6Confirmation() {
   const reset = useBookingStore((s) => s.reset);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [packageData, setPackageData] = useState<any>(null); // Store for package details if booking includes a package
+  const [allExtras, setAllExtras] = useState<ExtraCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -105,6 +111,17 @@ export function Step6Confirmation() {
             } catch (err) {
               console.error("Failed to fetch package details:", err);
             }
+          }
+
+          // Load all extras so package-included extras can show real names.
+          try {
+            const extrasRes = await fetch(`${window.sbConfig.apiBase}/extras/all`);
+            if (extrasRes.ok) {
+              const extrasData = await extrasRes.json();
+              setAllExtras(Array.isArray(extrasData) ? extrasData : []);
+            }
+          } catch (err) {
+            console.error("Failed to fetch extras catalog:", err);
           }
 
           setLoading(false);
@@ -153,6 +170,21 @@ export function Step6Confirmation() {
 
   const getExtraTitle = (extraId: number, extra_name?: string) =>
     extra_name || `Extra #${extraId}`;
+
+  const getExtraTitleById = (extraId: number): string => {
+    const fromBooking = bookingData._extras_details?.find(
+      (extra: ExtraDetail) => Number(extra.extra_id) === Number(extraId),
+    );
+    if (fromBooking?.extra_name) return fromBooking.extra_name;
+    if (fromBooking?.title) return fromBooking.title;
+
+    const fromCatalog = allExtras.find(
+      (extra: ExtraCatalogItem) => Number(extra.id) === Number(extraId),
+    );
+    if (fromCatalog?.title) return fromCatalog.title;
+
+    return `Extra #${extraId}`;
+  };
 
   const getPackageSpaceIds = (): number[] => {
     if (!packageData) {
@@ -264,10 +296,7 @@ export function Step6Confirmation() {
 
     if (packageData?.extra_ids && Array.isArray(packageData.extra_ids)) {
       packageData.extra_ids.forEach((extraId: number) => {
-        const detail = bookingData._extras_details?.find(
-          (extra: ExtraDetail) => extra.extra_id === extraId,
-        );
-        const title = detail?.extra_name || detail?.title || `Extra #${extraId}`;
+        const title = getExtraTitleById(extraId);
         const key = title.toLowerCase();
         if (byTitle.has(key)) return;
         byTitle.add(key);
@@ -395,39 +424,39 @@ export function Step6Confirmation() {
                   );
                   const packageSpaceIds = getPackageSpaceIds();
 
+                  const packageExtraNames =
+                    Array.isArray(packageData.extra_ids) && packageData.extra_ids.length > 0
+                      ? packageData.extra_ids.map((extraId: number) => getExtraTitleById(extraId))
+                      : [];
+
                   return (
-                  <div className="sb-package-breakdown">
-                    <div className="text-sm mb-2">
-                      <strong>{packageData.title}</strong> includes:
+                    <div className="sb-package-breakdown">
+                      <p style={{ margin: "0 0 8px 0" }}>
+                        <strong>{packageData.title}</strong> includes:
+                      </p>
+                      <ul className="sb-confirm-extras" style={{ marginTop: 0 }}>
+                        {packageSpaceIds.length > 0 && (
+                          <li>
+                            <strong>Spaces:</strong>{" "}
+                            {packageSpaceIds
+                              .map((spaceId: number, index: number) => {
+                                const title =
+                                  selectedSpaces.get(spaceId) ??
+                                  (index === 0
+                                    ? packageData.space_name || `Space #${spaceId}`
+                                    : `Space #${spaceId}`);
+                                return `${title} (Package)`;
+                              })
+                              .join(", ")}
+                          </li>
+                        )}
+                        {packageExtraNames.length > 0 && (
+                          <li>
+                            <strong>Extras:</strong> {packageExtraNames.join(", ")}
+                          </li>
+                        )}
+                      </ul>
                     </div>
-                    {packageSpaceIds.length > 0 && (
-                      <div className="mb-2">
-                        <span className="font-medium">Spaces:</span> {packageSpaceIds
-                          .map((spaceId: number, index: number) => {
-                            const title =
-                              selectedSpaces.get(spaceId) ??
-                              (index === 0
-                                ? packageData.space_name || `Space #${spaceId}`
-                                : `Space #${spaceId}`);
-                            return `${title} (Package)`;
-                          })
-                          .join(', ')}
-                      </div>
-                    )}
-                    {packageData.extra_ids && packageData.extra_ids.length > 0 && (
-                      <div>
-                        <span className="font-medium">Extras:</span> {packageData.extra_ids
-                          .map((extraId: number) => {
-                            // Look for extra in booking extras or return placeholder
-                            const bookingExtra = bookingData._extras_details?.find(
-                              (extra: ExtraDetail) => extra.extra_id === extraId
-                            );
-                            return bookingExtra ? bookingExtra.title || `Extra #${extraId}` : `Extra #${extraId}`;
-                          })
-                          .join(', ')}
-                      </div>
-                    )}
-                  </div>
                   );
                 })()}
                 </td>
