@@ -1,0 +1,47 @@
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+assets/js/*.map
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+TODO.md
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Composer/vendor (if used in WP/PHP workflows)
+vendor/
+
+# WordPress/plugin temporary files
+*.tmp
+*.temp
+
+
+# Ignore all Markdown files in all directories
+*.md
+
+# Except for README.md
+!README.md
+.blackboxcli/
