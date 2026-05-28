@@ -1,45 +1,98 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import { useBookingStore } from "@/store/bookingStore";
 
+const BOOKING_POLICY_ALLOWED_TAGS = [
+  "p",
+  "br",
+  "strong",
+  "b",
+  "em",
+  "i",
+  "u",
+  "strike",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "ul",
+  "ol",
+  "li",
+  "a",
+  "div",
+  "span",
+  "blockquote",
+  "pre",
+  "code",
+  "hr",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "th",
+  "td",
+  "caption",
+  "figure",
+  "figcaption",
+  "img",
+  "small",
+  "sup",
+  "sub",
+  "mark",
+] as const;
+
+const BOOKING_POLICY_ALLOWED_ATTR = [
+  "href",
+  "target",
+  "title",
+  "rel",
+  "class",
+  "src",
+  "alt",
+  "width",
+  "height",
+  "loading",
+  "decoding",
+  "colspan",
+  "rowspan",
+  "scope",
+  "align",
+] as const;
+
+function sanitizeBookingPolicy(policy: string): string {
+  return DOMPurify.sanitize(policy, {
+    ALLOWED_TAGS: [...BOOKING_POLICY_ALLOWED_TAGS],
+    ALLOWED_ATTR: [...BOOKING_POLICY_ALLOWED_ATTR],
+  });
+}
+
 export function Step5Terms() {
   const { nextStep, prevStep } = useBookingStore();
-  const [bookingPolicy, setBookingPolicy] = useState("");
+  const policyRef = useRef<HTMLDivElement | null>(null);
+  const [bookingPolicy, setBookingPolicy] = useState(() =>
+    sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+  );
   const [agreed, setAgreed] = useState(false);
   const [canAgree, setCanAgree] = useState(false);
   const [error, setError] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
-    // Load policy from global config
-    if (window.sbConfig?.bookingPolicy && !bookingPolicy) {
-      const purified = DOMPurify.sanitize(window.sbConfig.bookingPolicy, {
-        ALLOWED_TAGS: [
-          "p",
-          "br",
-          "strong",
-          "b",
-          "em",
-          "i",
-          "u",
-          "strike",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "h5",
-          "h6",
-          "ul",
-          "ol",
-          "li",
-          "a",
-          "div",
-          "span",
-        ],
-        ALLOWED_ATTR: ["href", "target", "title", "rel"],
-      });
-      setBookingPolicy(purified);
+    setBookingPolicy(
+      sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = policyRef.current;
+    if (!el) {
+      return;
     }
+
+    setCanAgree(el.scrollHeight <= el.clientHeight + 1);
   }, [bookingPolicy]);
 
   useEffect(() => {
@@ -75,7 +128,7 @@ export function Step5Terms() {
         </div>
         <div className="sb-step__actions">
           <button className="sb-btn sb-btn--ghost" onClick={prevStep}>
-            ← Back
+            Back
           </button>
         </div>
       </div>
@@ -87,87 +140,23 @@ export function Step5Terms() {
       <h2 className="sb-step__title">Terms & Agreement</h2>
 
       <div className="sb-policy-container">
-        <div
-          className="sb-policy-text"
-          dangerouslySetInnerHTML={{ __html: bookingPolicy }}
-          style={{
-            maxHeight: "400px",
-            overflow: "auto",
-            border: "1px solid #ddd",
-            padding: "16px",
-            borderRadius: "4px",
-            background: "#f9f9f9",
-            marginBottom: "16px",
-            fontFamily: "system-ui, -apple-system, sans-serif",
-            lineHeight: "1.6",
-            fontSize: "15px",
-          }}
-          onScroll={(e) => {
-            const target = e.target as HTMLDivElement;
-            const atBottom =
-              target.scrollTop + target.clientHeight >= target.scrollHeight - 1;
-            setCanAgree(atBottom);
-          }}
-        />
-        <style>{`
-          .sb-policy-text p {
-            margin-bottom: 1em;
-            margin-top: 0;
-          }
-          .sb-policy-text p:last-child {
-            margin-bottom: 0;
-          }
-          .sb-policy-text h1,
-          .sb-policy-text h2,
-          .sb-policy-text h3 {
-            margin-top: 2em;
-            margin-bottom: 1em;
-            font-weight: bold;
-            line-height: 1.3;
-          }
-          .sb-policy-text h1 { 
-            font-size: 2em; 
-          }
-          .sb-policy-text h2 { 
-            font-size: 1.5em; 
-          }
-          .sb-policy-text h3 { 
-            font-size: 1.25em; 
-          }
-          .sb-policy-text ul,
-          .sb-policy-text ol {
-            padding-left: 2em;
-            margin-bottom: 1em;
-          }
-          .sb-policy-text li {
-            margin-bottom: 0.5em;
-          }
-          .sb-policy-text strong,
-          .sb-policy-text b {
-            font-weight: 600;
-          }
-          .sb-policy-text em,
-          .sb-policy-text i {
-            font-style: italic;
-          }
-          .sb-policy-text a {
-            color: #0073aa;
-            text-decoration: underline;
-          }
-          .sb-policy-text a:hover {
-            color: #005a87;
-          }
-        `}</style>
+        <div className="sb-policy-shell">
+          <div
+            ref={policyRef}
+            className="sb-policy-text"
+            dangerouslySetInnerHTML={{ __html: bookingPolicy }}
+            onScroll={(e) => {
+              const target = e.target as HTMLDivElement;
+              const atBottom =
+                target.scrollTop + target.clientHeight >=
+                target.scrollHeight - 1;
+              setCanAgree(atBottom);
+            }}
+          />
+        </div>
 
-        <div
-          style={{
-            marginBottom: "12px",
-            fontSize: 14,
-            color: "#666",
-            fontStyle: "italic",
-          }}
-        >
-          📜 Scroll to the bottom of the terms above to enable the checkbox
+        <div className="sb-note sb-policy-note">
+          Scroll to the bottom of the terms above to enable the checkbox.
         </div>
 
         <label className="sb-checkbox-label">
@@ -178,13 +167,13 @@ export function Step5Terms() {
             disabled={!canAgree}
           />
           <span className="sb-checkbox-mark"></span>
-          <span style={{ fontSize: 14 }}>
+          <span className="sb-checkbox-copy">
             I have read and agree to the booking policy above
           </span>
         </label>
 
         {error && (
-          <div className="sb-error" style={{ marginTop: "8px" }}>
+          <div className="sb-error sb-error--mt">
             {error}
           </div>
         )}
@@ -192,20 +181,19 @@ export function Step5Terms() {
 
       <div className="sb-step__actions">
         <button className="sb-btn sb-btn--ghost" onClick={prevStep}>
-          ← Back
+          Back
         </button>
         <button
           className="sb-btn sb-btn--primary"
           onClick={handleNext}
           disabled={!agreed}
         >
-          Agree & Continue to Payment →
+          Agree & Continue to Payment
         </button>
       </div>
 
       {showConfirm && (
         <>
-          {/* Backdrop */}
           <div
             style={{
               position: "fixed",
@@ -223,7 +211,6 @@ export function Step5Terms() {
             onClick={handleConfirmNo}
           />
 
-          {/* Modal */}
           <div
             style={{
               position: "fixed",
@@ -241,7 +228,7 @@ export function Step5Terms() {
             }}
           >
             <h3 style={{ margin: "0 0 16px 0", color: "#333" }}>
-              ⚠️ Final Confirmation
+              Final Confirmation
             </h3>
             <p
               style={{

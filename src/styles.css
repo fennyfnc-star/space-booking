@@ -147,6 +147,266 @@
   font-weight: 700;
 }
 
+.sb-policy-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sb-policy-shell {
+  border: 1.5px solid var(--sb-border);
+  border-radius: var(--sb-radius);
+  background: var(--sb-bg);
+  overflow: hidden;
+}
+
+.sb-policy-text {
+  max-height: 400px;
+  overflow: auto;
+  padding: 20px 22px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--sb-text);
+}
+
+.sb-policy-text > :first-child {
+  margin-top: 0;
+}
+
+.sb-policy-text > :last-child {
+  margin-bottom: 0;
+}
+
+.sb-policy-text p {
+  margin: 0 0 1em;
+}
+
+.sb-policy-text h1,
+.sb-policy-text h2,
+.sb-policy-text h3,
+.sb-policy-text h4,
+.sb-policy-text h5,
+.sb-policy-text h6 {
+  margin: 1.5em 0 0.75em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.sb-policy-text h1 {
+  font-size: 2em;
+}
+
+.sb-policy-text h2 {
+  font-size: 1.5em;
+}
+
+.sb-policy-text h3 {
+  font-size: 1.25em;
+}
+
+.sb-policy-text h4 {
+  font-size: 1.1em;
+}
+
+.sb-policy-text h5,
+.sb-policy-text h6 {
+  font-size: 1em;
+}
+
+.sb-policy-text ul,
+.sb-policy-text ol {
+  margin: 0 0 1em;
+  padding-left: 1.5em;
+}
+
+.sb-policy-text li + li {
+  margin-top: 0.35em;
+}
+
+.sb-policy-text blockquote {
+  margin: 1.25em 0;
+  padding: 0.9em 1.1em;
+  border-left: 4px solid var(--sb-primary);
+  background: rgba(45, 106, 79, 0.06);
+  color: var(--sb-text);
+}
+
+.sb-policy-text pre {
+  margin: 1em 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #111827;
+  color: #f9fafb;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sb-policy-text code {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Consolas,
+    Liberation Mono,
+    monospace;
+  font-size: 0.95em;
+}
+
+.sb-policy-text p code,
+.sb-policy-text li code {
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  background: rgba(26, 26, 46, 0.08);
+}
+
+.sb-policy-text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  overflow: hidden;
+}
+
+.sb-policy-text th,
+.sb-policy-text td {
+  padding: 10px 12px;
+  border: 1px solid var(--sb-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sb-policy-text th {
+  background: rgba(45, 106, 79, 0.08);
+  font-weight: 700;
+}
+
+.sb-policy-text img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em 0;
+  border-radius: 8px;
+}
+
+.sb-policy-text figure {
+  margin: 1em 0;
+}
+
+.sb-policy-text figcaption {
+  margin-top: 0.5em;
+  font-size: 0.9em;
+  color: var(--sb-muted);
+}
+
+.sb-policy-text hr {
+  border: 0;
+  border-top: 1px solid var(--sb-border);
+  margin: 1.25em 0;
+}
+
+.sb-policy-text a {
+  color: var(--sb-primary);
+  text-decoration: underline;
+}
+
+.sb-policy-text a:hover {
+  color: var(--sb-primary-dark);
+}
+
+.sb-policy-text strong,
+.sb-policy-text b {
+  font-weight: 700;
+}
+
+.sb-policy-text em,
+.sb-policy-text i {
+  font-style: italic;
+}
+
+.sb-policy-text small {
+  font-size: 0.85em;
+}
+
+.sb-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--sb-muted);
+}
+
+.sb-policy-note {
+  margin-top: 0;
+  font-style: italic;
+}
+
+.sb-checkbox-label {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--sb-border);
+  border-radius: var(--sb-radius);
+  background: var(--sb-white);
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.sb-checkbox-label input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sb-checkbox-mark {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--sb-border);
+  border-radius: 4px;
+  background: var(--sb-white);
+  position: relative;
+  transition:
+    background var(--sb-transition),
+    border-color var(--sb-transition),
+    box-shadow var(--sb-transition);
+}
+
+.sb-checkbox-label input:checked + .sb-checkbox-mark {
+  background: var(--sb-primary);
+  border-color: var(--sb-primary);
+}
+
+.sb-checkbox-label input:checked + .sb-checkbox-mark::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.sb-checkbox-label input:focus-visible + .sb-checkbox-mark {
+  box-shadow: 0 0 0 3px var(--sb-primary-light);
+}
+
+.sb-checkbox-label input:disabled + .sb-checkbox-mark {
+  background: var(--sb-bg);
+  opacity: 0.7;
+}
+
+.sb-checkbox-label input:disabled ~ .sb-checkbox-copy {
+  color: var(--sb-muted);
+}
+
+.sb-checkbox-copy {
+  font-size: 14px;
+  color: var(--sb-text);
+}
+
 .sb-error-message {
   font-size: 12px;
   color: var(--sb-danger);
@@ -623,16 +883,36 @@
 }
 
 /* ── Summary (Step 5) ───────────────────────────────────────── */
+.sb-checkout-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sb-checkout-summary h3,
+.sb-checkout-summary h4 {
+  margin: 0;
+}
+
+.sb-checkout-summary h3 {
+  font-size: 18px;
+}
+
+.sb-checkout-summary h4 {
+  font-size: 15px;
+}
+
 .sb-summary-grid {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .sb-summary-row {
   display: flex;
   gap: 16px;
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--sb-border);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .sb-summary-row span:first-child {
@@ -953,7 +1233,11 @@
 .sb-form {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 20px;
+}
+
+.sb-field {
+  margin-bottom: 0;
 }
 
 /* ── Responsive ──────────────────────────────────────────────── */
