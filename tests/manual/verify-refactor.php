@@ -2,14 +2,14 @@
 
 /**
  * Verification Test Script for Multi-Space Iteration Fix
- * Run this via: http://your-site/wp-content/plugins/space-booking/tests/verify-refactor.php
+ * Run this via: http://your-site/wp-content/plugins/space-booking/tests/manual/verify-refactor.php
  *
  * This test uses EXACT IDs from the logs: 223, 10, 224
  * Verifies that when _sb_selected_item_ids is present, ALL spaces get their own row
  */
 
 // Load WordPress
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== Multi-Space Iteration Verification (Using IDs 223, 10, 224) ===\n\n";
 

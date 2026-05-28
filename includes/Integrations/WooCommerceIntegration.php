@@ -10,6 +10,8 @@ use SpaceBooking\Services\WooCommerceService;
  */
 final class WooCommerceIntegration
 {
+    private const SNAPSHOT_KEY = 'sb_price_snapshot_v1';
+
     public static function init(): void
     {
         if (!class_exists('WooCommerce')) {
@@ -24,6 +26,9 @@ final class WooCommerceIntegration
         add_action('woocommerce_order_status_processing', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_order_status_on-hold', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_order_status_completed', [self::class, 'confirm_booking'], 10, 1);
+        add_action('woocommerce_before_calculate_totals', [self::class, 'apply_snapshot_cart_prices'], 50, 1);
+        add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 10, 3);
+        add_filter('woocommerce_get_item_data', [self::class, 'render_cart_item_data'], 10, 2);
         // Late redirect check after all payment hooks
         add_action('wp_footer', [self::class, 'late_redirect_check'], 9999);
 
@@ -39,6 +44,66 @@ final class WooCommerceIntegration
         // Custom order action - DISABLED to avoid duplicate with WooCommerceOrderActions.php
         // add_filter('woocommerce_order_actions', [self::class, 'add_confirmation_action'], 10, 2);
         // add_action('woocommerce_order_action_send_sb_confirmation_email', [self::class, 'handle_confirmation_action'], 10, 1);
+    }
+
+    /**
+     * Apply immutable snapshot price to cart line item.
+     */
+    public static function apply_snapshot_cart_prices($cart): void
+    {
+        if (!is_object($cart) || (is_admin() && !defined('DOING_AJAX'))) {
+            return;
+        }
+
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            if (!isset($cart_item['sb_cart_price']) || !isset($cart_item['data'])) {
+                continue;
+            }
+
+            $line_total = (float) $cart_item['sb_cart_price'];
+            if ($line_total < 0) {
+                continue;
+            }
+
+            $cart_item['data']->set_price($line_total);
+            $cart->cart_contents[$cart_item_key]['sb_cart_price'] = $line_total;
+        }
+    }
+
+    /**
+     * Render booking-specific cart item title.
+     */
+    public static function render_cart_item_name(string $name, array $cart_item, string $cart_item_key): string
+    {
+        if (!empty($cart_item['sb_display_title'])) {
+            return esc_html((string) $cart_item['sb_display_title']);
+        }
+
+        return $name;
+    }
+
+    /**
+     * Render booking details on cart/checkout item meta.
+     */
+    public static function render_cart_item_data(array $item_data, array $cart_item): array
+    {
+        if (empty($cart_item['sb_date'])) {
+            return $item_data;
+        }
+
+        $time_label = trim((string) ($cart_item['sb_start_time'] ?? '') . ' - ' . (string) ($cart_item['sb_end_time'] ?? ''));
+        $item_data[] = [
+            'name' => 'Booking Date',
+            'value' => sanitize_text_field((string) $cart_item['sb_date']),
+        ];
+        if ($time_label !== '-') {
+            $item_data[] = [
+                'name' => 'Time',
+                'value' => sanitize_text_field($time_label),
+            ];
+        }
+
+        return $item_data;
     }
 
     // public static function add_confirmation_action($actions, $order)
@@ -78,6 +143,19 @@ final class WooCommerceIntegration
     public static function display_booking_breakdown($order): void
     {
         $enriched_breakdown = $order->get_meta('_sb_price_breakdown_enriched');
+        $snapshot = $order->get_meta('_sb_price_snapshot_v1');
+        if (!$enriched_breakdown && is_string($snapshot)) {
+            $decoded = json_decode($snapshot, true);
+            if (is_array($decoded) && !empty($decoded['line_items'])) {
+                $enriched_breakdown = array_map(static function (array $line): array {
+                    return [
+                        'label' => $line['label'] ?? 'Item',
+                        'amount' => (float) ($line['line_total'] ?? 0),
+                    ];
+                }, $decoded['line_items']);
+            }
+        }
+
         if (!$enriched_breakdown || !is_array($enriched_breakdown)) {
             return;
         }
@@ -111,20 +189,24 @@ final class WooCommerceIntegration
     public static function save_booking_meta_guaranteed($order_id): void
     {
         $order = wc_get_order($order_id);
-        if (!$order || $order->get_meta('_sb_booking_id')) {
+        if (!$order) {
             return;
         }
 
-        // Check line items (same logic as save_order_meta)
+        $has_booking_id = (bool) $order->get_meta('_sb_booking_id');
         foreach ($order->get_items() as $item) {
             $booking_id = $item->get_meta('sb_booking_id', true);
-            if ($booking_id) {
+            $snapshot = $item->get_meta(self::SNAPSHOT_KEY, true);
+            if ($booking_id && !$has_booking_id) {
                 $order->update_meta_data('_sb_booking_id', $booking_id);
-                $order->save();
-                error_log('SpaceBooking WC: GUARANTEED save booking_id ' . $booking_id . ' to order #' . $order_id);
-                return;
+                $has_booking_id = true;
+            }
+            if (is_string($snapshot) && $snapshot !== '') {
+                $order->update_meta_data('_sb_price_snapshot_v1', $snapshot);
             }
         }
+
+        $order->save();
     }
 
     /**
@@ -341,7 +423,7 @@ final class WooCommerceIntegration
                 $pending_id
             );
             error_log('SpaceBooking WC populate success for #' . $pending_id);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             error_log('SpaceBooking WC populate failed for #' . $pending_id . ': ' . $e->getMessage());
         }
 
@@ -356,77 +438,57 @@ final class WooCommerceIntegration
      */
     public static function save_order_meta($order_id, $posted_data, $order)
     {
-        error_log('SpaceBooking WC: save_order_meta called for order #' . $order_id);
-
-        // Direct check session/transient for recent booking
-        $session_booking = WC()->session ? WC()->session->get('sb_pending_booking_id') : null;
-        if ($session_booking) {
-            $order->update_meta_data('_sb_booking_id', $session_booking);
-            $order->save();
-            error_log('SpaceBooking WC: Saved session booking_id ' . $session_booking . ' to order #' . $order_id);
-            $repo = new BookingRepository();
-            $repo->link_order((int) $session_booking, (int) $order_id);
-            self::sync_booking_contact_to_order($order, (int) $session_booking, $repo);
-            WC()->session->set('sb_pending_booking_id', null);
-            return;
-        }
-
-        // Fallback existing meta
-        $existing_booking_id = $order->get_meta('_sb_booking_id');
-        if ($existing_booking_id) {
-            error_log('SpaceBooking WC: Booking ID already in order meta: ' . $existing_booking_id);
-            $repo = new BookingRepository();
-            $repo->link_order((int) $existing_booking_id, (int) $order_id);
-            self::sync_booking_contact_to_order($order, (int) $existing_booking_id, $repo);
-            return;
-        }
-
+        $booking_id = null;
+        $snapshot = null;
         $enriched_breakdown = null;
 
-        // Loop ALL line items (including fees, shipping, etc.)
         foreach ($order->get_items() as $item) {
-            $booking_id = $item->get_meta('sb_booking_id', true);
-            if ($booking_id) {
-                $order->update_meta_data('_sb_booking_id', $booking_id);
-                $order->save();
-                error_log('SpaceBooking WC: Saved from line item booking_id ' . $booking_id . ' to order #' . $order_id);
-
-                $enriched = $item->get_meta('sb_price_breakdown_enriched', true);
-                if ($enriched) {
-                    $enriched_breakdown = $enriched;
-                }
-                $repo = new BookingRepository();
-                $repo->link_order((int) $booking_id, (int) $order_id);
-                self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
-                break;
+            $line_booking_id = (int) $item->get_meta('sb_booking_id', true);
+            if ($line_booking_id > 0) {
+                $booking_id = $line_booking_id;
             }
+
+            $line_snapshot = $item->get_meta(self::SNAPSHOT_KEY, true);
+            if (is_string($line_snapshot) && $line_snapshot !== '') {
+                $snapshot = $line_snapshot;
+            }
+
+            $line_breakdown = $item->get_meta('sb_price_breakdown_enriched', true);
+            if ($line_breakdown) {
+                $enriched_breakdown = $line_breakdown;
+            }
+        }
+
+        if (!$booking_id && WC()->session) {
+            $session_booking_id = (int) WC()->session->get('sb_booking_id');
+            if ($session_booking_id > 0) {
+                $booking_id = $session_booking_id;
+            }
+        }
+
+        if ($booking_id) {
+            $order->update_meta_data('_sb_booking_id', $booking_id);
+        }
+
+        if ($snapshot !== null) {
+            $order->update_meta_data('_sb_price_snapshot_v1', $snapshot);
         }
 
         if ($enriched_breakdown) {
             $order->update_meta_data('_sb_price_breakdown_enriched', $enriched_breakdown);
-            $order->save();
-            error_log('SpaceBooking WC: Saved enriched breakdown to order #' . $order_id);
         }
 
-        // Fallback: check order TAXABLE line item meta directly
-        $order_items = $order->get_items('line_item');
-        foreach ($order_items as $item_id => $item) {
-            $item_meta = $item->get_meta_data();
-            foreach ($item_meta as $meta) {
-                if ($meta->key === 'sb_booking_id') {
-                    $booking_id = $meta->value;
-                    $order->update_meta_data('_sb_booking_id', $booking_id);
-                    $order->save();
-                    error_log('SpaceBooking WC: Saved from TAXABLE line item meta booking_id ' . $booking_id . ' to order #' . $order_id);
-                    $repo = new BookingRepository();
-                    $repo->link_order((int) $booking_id, (int) $order_id);
-                    self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
-                    return;
-                }
+        $order->update_meta_data('_sb_checkout_model', 'reusable_product_v1');
+        $order->save();
+
+        if ($booking_id) {
+            $repo = new BookingRepository();
+            $repo->link_order((int) $booking_id, (int) $order_id);
+            self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
+            if (WC()->session) {
+                WC()->session->set('sb_pending_booking_id', null);
             }
         }
-
-        error_log('SpaceBooking WC: No booking_id found in order #' . $order_id);
     }
 
     /**

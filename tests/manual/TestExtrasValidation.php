@@ -8,11 +8,11 @@
  * 2. Booking with extras shows proper extras
  * 3. Extra validation (only valid extra_id)
  *
- * Run via: http://your-site/wp-content/plugins/space-booking/tests/TestExtrasValidation.php
+ * Run via: http://your-site/wp-content/plugins/space-booking/tests/manual/TestExtrasValidation.php
  */
 
 // Load WordPress
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== Extras Validation Tests ===\n\n";
 
@@ -22,6 +22,22 @@ $extras_table = $wpdb->prefix . 'sb_booking_extras';
 $repo = new \SpaceBooking\Services\BookingRepository();
 
 $test_date = date('Y-m-d', strtotime('+1 day'));
+
+function create_test_extra(): int
+{
+    $extra_id = wp_insert_post([
+        'post_type' => 'sb_extra',
+        'post_status' => 'publish',
+        'post_title' => 'Test Extra Validation Item',
+    ]);
+
+    if (!is_wp_error($extra_id) && $extra_id > 0) {
+        update_post_meta($extra_id, '_sb_extra_price', 25.0);
+        return (int) $extra_id;
+    }
+
+    return 0;
+}
 
 // ============================================================
 // TEST 1: Booking WITHOUT extras returns empty extras
@@ -56,6 +72,11 @@ echo 'TEST 1 RESULT: ' . ($test_1_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 2: With Extras Returns Correct Data ===\n";
 
+$valid_extra_id = create_test_extra();
+if ($valid_extra_id <= 0) {
+    echo "Could not create test extra post.\n";
+}
+
 $with_extras_id = $repo->create([
     'space_id' => 101,
     'customer_name' => 'With Extras Customer',
@@ -65,7 +86,7 @@ $with_extras_id = $repo->create([
     'end_time' => '15:00',
     'status' => 'confirmed',
     'extras' => [
-        ['extra_id' => 1, 'quantity' => 2],  // Sample extra
+        ['extra_id' => $valid_extra_id, 'quantity' => 2],
     ],
 ]);
 
@@ -86,7 +107,7 @@ $enriched_count = is_array($enriched_extras) ? count($enriched_extras) : 0;
 
 echo "Enriched extras count: $enriched_count\n";
 
-$test_2_pass = $enriched_count >= 0;  // May vary based on extra_id validity
+$test_2_pass = $valid_extra_id > 0 && count($direct_extras) === 1 && $enriched_count === 1;
 
 echo 'TEST 2 RESULT: ' . ($test_2_pass ? 'PASS' : 'FAIL') . "\n\n";
 
@@ -106,7 +127,7 @@ echo "Inserted invalid extra_id 999999\n";
 
 // Get enriched - should not include invalid
 $booking_3 = $repo->findEnriched($no_extras_id);
-$valid_extras = $booking_3['_extras'] ?? [];
+$valid_extras = $booking_3['extras'] ?? [];
 $valid_extras_count = is_array($valid_extras) ? count($valid_extras) : 0;
 
 echo "Valid extras count after validation: $valid_extras_count\n";
@@ -131,6 +152,9 @@ echo 'TEST 4 RESULT: ' . ($test_4_pass ? 'PASS' : 'FAIL') . "\n\n";
 echo "=== Cleanup ===\n";
 $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE id IN (%d, %d)", $no_extras_id, $with_extras_id));
 $wpdb->query($wpdb->prepare("DELETE FROM $extras_table WHERE booking_id IN (%d, %d)", $no_extras_id, $with_extras_id));
+if (!empty($valid_extra_id)) {
+    wp_delete_post($valid_extra_id, true);
+}
 echo "Done.\n\n";
 
 // ============================================================
@@ -144,3 +168,4 @@ echo 'Test 4 (Title Included): ' . ($test_4_pass ? 'PASS' : 'FAIL') . "\n";
 
 $all_pass = $test_1_pass && $test_2_pass && $test_3_pass && $test_4_pass;
 echo "\nOVERALL: " . ($all_pass ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED') . "\n";
+exit($all_pass ? 0 : 1);

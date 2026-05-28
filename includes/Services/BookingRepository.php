@@ -110,6 +110,10 @@ class BookingRepository
 			$booking['_price_breakdown'] = json_decode($price_breakdown, true);
 			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items (SINGLE SOURCE)', count($booking['_price_breakdown'])));
 		}
+		$price_snapshot = $this->get_meta($id, '_sb_price_snapshot_v1');
+		if ($price_snapshot) {
+			$booking['_price_snapshot_v1'] = json_decode($price_snapshot, true);
+		}
 
 		// Expose package inclusions for frontend confirmation rendering.
 		$package_inclusions_raw = $this->get_meta($id, '_sb_package_inclusions');

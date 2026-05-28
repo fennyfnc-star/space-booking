@@ -9,11 +9,11 @@
  * 3. Update status for all rows in group
  * 4. Multi-space slot blocking
  *
- * Run via: http://your-site/wp-content/plugins/space-booking/tests/TestMultiSpaceBooking.php
+ * Run via: http://your-site/wp-content/plugins/space-booking/tests/manual/TestMultiSpaceBooking.php
  */
 
 // Load WordPress
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== Multi-Space Booking Tests ===\n\n";
 
@@ -24,11 +24,10 @@ $availability = new \SpaceBooking\Services\AvailabilityService($repo);
 
 $test_date = date('Y-m-d', strtotime('+1 day'));
 
-// Use spaces that are known to work with testing
-$space_1 = 223;
-$space_2 = 10;
-$space_3 = 224;
-$test_spaces = [$space_1, $space_2, $space_3];
+// Use the same spaces throughout setup, assertions, and cleanup.
+$space_1 = 101;
+$space_2 = 102;
+$space_3 = 103;
 
 // Cleanup function
 function cleanup_test_bookings(string $date, int $s1, int $s2, int $s3): void
@@ -66,10 +65,10 @@ function cleanup_test_bookings(string $date, int $s1, int $s2, int $s3): void
 // ============================================================
 echo "=== TEST 1: Create Lead Booking ===\n";
 
-cleanup_test_bookings($test_date);
+cleanup_test_bookings($test_date, $space_1, $space_2, $space_3);
 
 $lead_id = $repo->create([
-    'space_id' => 101,
+    'space_id' => $space_1,
     'customer_name' => 'Multi Space Customer',
     'customer_email' => 'multispace@test.com',
     'booking_date' => $test_date,
@@ -82,7 +81,7 @@ echo "Created lead booking ID: $lead_id\n";
 
 // Verify
 $lead = $repo->find($lead_id);
-$test_1_pass = $lead && $lead['space_id'] == 101;
+$test_1_pass = $lead && $lead['space_id'] == $space_1;
 
 echo 'TEST 1 RESULT: ' . ($test_1_pass ? 'PASS' : 'FAIL') . "\n\n";
 
@@ -92,7 +91,7 @@ echo 'TEST 1 RESULT: ' . ($test_1_pass ? 'PASS' : 'FAIL') . "\n\n";
 echo "=== TEST 2: Create Secondary Row ===\n";
 
 $secondary_id = $repo->create_booking_row([
-    'space_id' => 102,
+    'space_id' => $space_2,
     'order_id' => $lead_id,
     'booking_date' => $test_date,
     'start_time' => '10:00',
@@ -104,7 +103,7 @@ echo "Created secondary booking ID: $secondary_id\n";
 
 // Verify secondary
 $secondary = $repo->find($secondary_id);
-$test_2_pass = $secondary && $secondary['order_id'] == $lead_id && $secondary['space_id'] == 102;
+$test_2_pass = $secondary && $secondary['order_id'] == $lead_id && $secondary['space_id'] == $space_2;
 
 echo 'Secondary order_id: ' . ($secondary['order_id'] ?? 'none') . "\n";
 
@@ -135,7 +134,7 @@ echo 'TEST 3 RESULT: ' . ($test_3_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 4: Single Space Blocks ===\n";
 
-$slots = $availability->get_slots(101, $test_date, 60);
+$slots = $availability->get_slots($space_1, $test_date, 60);
 $slots_array = $slots['slots'];
 
 // Find 10:00 slot
@@ -156,7 +155,7 @@ echo 'TEST 4 RESULT: ' . ($test_4_pass ? 'PASS' : 'FAIL') . "\n\n";
 // ============================================================
 echo "=== TEST 5: Intersection Shows Blockers ===\n";
 
-$intersection = $availability->get_intersection_slots([101, 102], $test_date, 60);
+$intersection = $availability->get_intersection_slots([$space_1, $space_2], $test_date, 60);
 
 echo 'Common slots: ' . count($intersection['slots']) . "\n";
 echo 'Blockers: ' . count($intersection['blockers']) . "\n";
@@ -179,7 +178,7 @@ echo "=== TEST 6: Both Spaces Blocked ===\n";
 // Both 101 and 102 have confirmed bookings at same time
 // Create third space for comparison
 $third_id = $repo->create_booking_row([
-    'space_id' => 103,
+    'space_id' => $space_3,
     'order_id' => $lead_id,
     'booking_date' => $test_date,
     'start_time' => '10:00',
@@ -187,10 +186,10 @@ $third_id = $repo->create_booking_row([
     'status' => 'confirmed',
 ]);
 
-echo "Created third row ID: $third_id for space 103\n";
+echo "Created third row ID: $third_id for space $space_3\n";
 
 // Now check intersection of all three
-$intersection_all = $availability->get_intersection_slots([101, 102, 103], $test_date, 60);
+$intersection_all = $availability->get_intersection_slots([$space_1, $space_2, $space_3], $test_date, 60);
 
 echo 'All three common slots: ' . count($intersection_all['slots']) . "\n";
 
@@ -221,7 +220,7 @@ echo 'TEST 7 RESULT: ' . ($test_7_pass ? 'PASS' : 'FAIL') . "\n\n";
 // CLEANUP
 // ============================================================
 echo "=== Cleanup ===\n";
-cleanup_test_bookings($test_date);
+cleanup_test_bookings($test_date, $space_1, $space_2, $space_3);
 echo "Done.\n\n";
 
 // ============================================================

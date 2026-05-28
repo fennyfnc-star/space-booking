@@ -151,8 +151,8 @@ final class EmailService
 		}
 
 		// Parse shortcodes
-		// Get package inclusions for email
-		$package_inclusions = get_post_meta((int) $booking_id, '_sb_package_inclusions', true);
+		// Get package inclusions from booking meta table.
+		$package_inclusions = $repo->get_meta((int) $booking_id, '_sb_package_inclusions');
 		$inclusions_html = '';
 		if ($package_inclusions) {
 			$inclusions = is_string($package_inclusions) ? json_decode($package_inclusions, true) : $package_inclusions;

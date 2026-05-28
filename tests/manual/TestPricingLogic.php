@@ -8,7 +8,7 @@
  * 2. Weekend Modifier: 10% surcharge → $110
  * 3. Multi-Space Totals: Space A ($50/hr) + Space B ($30/hr) for 2hr = $160 + modifiers
  *
- * Run: http://your-site/wp-content/plugins/space-booking/tests/TestPricingLogic.php
+ * Run: http://your-site/wp-content/plugins/space-booking/tests/manual/TestPricingLogic.php
  */
 
 // Bootstrap WordPress
@@ -16,8 +16,8 @@ define('ABSPATH', 'C:/xampp/htdocs/kukoolala/');
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
-require_once dirname(__FILE__) . '/../space-booking.php';
-require_once dirname(__FILE__) . '/../includes/Plugin.php';
+require_once dirname(__FILE__) . '/../../space-booking.php';
+require_once dirname(__FILE__) . '/../../includes/Plugin.php';
 
 \spaceBooking\Plugin::instance()->boot();
 

@@ -9,11 +9,11 @@
  * 3. Cleanup removes expired pending bookings
  * 4. Get pending intervals method works
  *
- * Run via: http://your-site/wp-content/plugins/space-booking/tests/TestPendingBlocking.php
+ * Run via: http://your-site/wp-content/plugins/space-booking/tests/manual/TestPendingBlocking.php
  */
 
 // Load WordPress
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== Pending Slot Blocking Tests ===\n\n";
 

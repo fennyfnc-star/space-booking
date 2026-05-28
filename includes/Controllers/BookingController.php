@@ -221,11 +221,56 @@ final class BookingController extends WP_REST_Controller
 			$booking_id = $this->repo->create($data);
 			// Save selected_item_ids for WC multi-item
 			$this->repo->save_meta($booking_id, '_sb_selected_item_ids', wp_json_encode($selected_item_ids));
-			// Backend breakdown
-			update_post_meta($booking_id, '_sb_price_breakdown', wp_json_encode($price['breakdown']));
+			// Persist immutable booking snapshot + breakdown in booking meta.
+			$this->repo->save_meta($booking_id, '_sb_price_breakdown', wp_json_encode($price['breakdown']));
 			if ($frontend_breakdown && $price['breakdown']) {
-				update_post_meta($booking_id, '_sb_price_breakdown_enriched', $frontend_breakdown);
+				$this->repo->save_meta($booking_id, '_sb_price_breakdown_enriched', wp_json_encode($frontend_breakdown));
 			}
+			$snapshot_payload = [
+				'version' => 1,
+				'booking_id' => $booking_id,
+				'currency' => function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : get_option('woocommerce_currency', 'USD'),
+				'base_price' => (float) $price['base_price'],
+				'extras_price' => (float) $price['extras_price'],
+				'modifier_price' => (float) ($price['modifier_price'] ?? 0),
+				'total' => (float) $price['total_price'],
+				'date' => $date,
+				'start_time' => $start_time,
+				'end_time' => $end_time,
+				'line_items' => [],
+				'captured_at_gmt' => gmdate('c'),
+			];
+
+			foreach (($price['items'] ?? []) as $item) {
+				$subtotal = (float) ($item['subtotal'] ?? 0);
+				if ($subtotal <= 0) {
+					continue;
+				}
+				$snapshot_payload['line_items'][] = [
+					'type' => (string) ($item['type'] ?? 'item'),
+					'reference_id' => (int) ($item['id'] ?? 0),
+					'label' => sanitize_text_field((string) ($item['title'] ?? 'Item')),
+					'quantity' => 1,
+					'unit_price' => $subtotal,
+					'line_total' => $subtotal,
+				];
+			}
+			foreach (($price['extras_breakdown'] ?? []) as $extra_item) {
+				$amount = (float) ($extra_item['amount'] ?? 0);
+				if ($amount <= 0) {
+					continue;
+				}
+				$snapshot_payload['line_items'][] = [
+					'type' => 'extra',
+					'reference_id' => 0,
+					'label' => sanitize_text_field((string) ($extra_item['label'] ?? 'Extra')),
+					'quantity' => 1,
+					'unit_price' => $amount,
+					'line_total' => $amount,
+				];
+			}
+			$this->repo->save_meta($booking_id, '_sb_price_snapshot_v1', wp_json_encode($snapshot_payload));
+			$this->repo->save_meta($booking_id, '_sb_checkout_model', 'reusable_product_v1');
 			// Save package inclusions for email display (spaces and extras included in package)
 			$inclusions = [];
 			if (!empty($price['items'])) {
@@ -288,6 +333,9 @@ final class BookingController extends WP_REST_Controller
 				'start_time' => $start_time,
 				'end_time' => $end_time,
 				'duration_hours' => $price['duration_hours'],
+				'base_price' => $price['base_price'],
+				'extras_price' => $price['extras_price'],
+				'modifier_price' => $price['modifier_price'] ?? 0,
 				'customer_name' => $name,
 				'customer_email' => $email,
 				'extras' => $extras,
@@ -317,6 +365,9 @@ final class BookingController extends WP_REST_Controller
 						'date' => $date,
 						'start_time' => $start_time,
 						'end_time' => $end_time,
+						'base_price' => $price['base_price'],
+						'extras_price' => $price['extras_price'],
+						'modifier_price' => $price['modifier_price'] ?? 0,
 						'customer_name' => $name,
 						'customer_email' => $email,
 						'extras' => $extras,

@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
-         bootstrap="tests/bootstrap.php"
+         bootstrap="vendor/autoload.php"
          colors="true"
-         cacheDirectory=".phpunit.cache">
+         cacheDirectory=".phpunit.cache"
+         failOnEmptyTestSuite="true"
+         failOnRisky="true"
+         failOnWarning="true">
     <testsuites>
         <testsuite name="Unit">
-            <directory>tests</directory>
-            <exclude>tests/verify-refactor.php</exclude>
+            <directory suffix="Test.php">tests/phpunit</directory>
         </testsuite>
     </testsuites>
-    <php>
-        <env name="WP_ENV" value="testing"/>
-    </php>
 </phpunit>

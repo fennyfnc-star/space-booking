@@ -6,7 +6,7 @@
  */
 
 // Load WordPress bootstrap
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== Debug: Search for booking 166 ===\n\n";
 
