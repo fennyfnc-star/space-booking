@@ -111,13 +111,42 @@ class BookingRepository
 			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items (SINGLE SOURCE)', count($booking['_price_breakdown'])));
 		}
 
+		// Expose package inclusions for frontend confirmation rendering.
+		$package_inclusions_raw = $this->get_meta($id, '_sb_package_inclusions');
+		$booking['_package_inclusions'] = [];
+		if (!empty($package_inclusions_raw)) {
+			$decoded_inclusions = json_decode($package_inclusions_raw, true);
+			if (is_array($decoded_inclusions)) {
+				$booking['_package_inclusions'] = array_values(array_filter(array_map(static function ($inc) {
+					if (!is_array($inc)) {
+						return null;
+					}
+					$type = sanitize_text_field((string) ($inc['type'] ?? ''));
+					$title = sanitize_text_field((string) ($inc['title'] ?? ''));
+					$label = sanitize_text_field((string) ($inc['label'] ?? ''));
+					if ($type === '' || $title === '') {
+						return null;
+					}
+					$normalized = [
+						'type' => $type,
+						'title' => $title,
+					];
+					if ($label !== '') {
+						$normalized['label'] = $label;
+					}
+					return $normalized;
+				}, $decoded_inclusions)));
+			}
+		}
+
 		// DEBUG: Log what's being returned (updated - removed display_extras)
 		error_log(sprintf(
-			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _price_breakdown=%s',
+			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _price_breakdown=%s, _package_inclusions=%s',
 			$id,
 			json_encode($booking['extras'] ?? []),
 			json_encode($booking['_extras'] ?? []),
-			json_encode($booking['_price_breakdown'] ?? [])
+			json_encode($booking['_price_breakdown'] ?? []),
+			json_encode($booking['_package_inclusions'] ?? [])
 		));
 
 		return $booking;

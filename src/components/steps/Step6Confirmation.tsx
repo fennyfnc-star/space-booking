@@ -15,6 +15,12 @@ interface ExtraDetail {
   unit_price: number;
 }
 
+interface PackageInclusion {
+  type: string;
+  title: string;
+  label?: string;
+}
+
 interface PriceBreakdownItem {
   label: string;
   amount: number;
@@ -33,6 +39,7 @@ interface BookingData {
   _space_titles?: string[];
   _selected_items?: SelectedItem[];
   package_id?: number;
+  package_ids?: number[];
   customer_name: string;
   customer_email: string;
   customer_phone?: string;
@@ -78,13 +85,21 @@ export function Step6Confirmation() {
         .then(async (data) => {
           setBookingData(data);
 
-          // If booking includes a package, fetch package details
-          if (data.package_id) {
+          // If booking includes package(s), fetch first package details for display fallback.
+          const packageIds =
+            Array.isArray(data.package_ids) && data.package_ids.length > 0
+              ? data.package_ids
+              : data.package_id
+                ? [data.package_id]
+                : [];
+          if (packageIds.length > 0) {
             try {
               const packageRes = await fetch(`${window.sbConfig.apiBase}/packages`);
               if (packageRes.ok) {
                 const allPackages = await packageRes.json();
-                const packageDetails = allPackages.find((pkg: any) => pkg.id === data.package_id);
+                const packageDetails = allPackages.find(
+                  (pkg: any) => pkg.id === Number(packageIds[0]),
+                );
                 setPackageData(packageDetails);
               }
             } catch (err) {
@@ -157,6 +172,20 @@ export function Step6Confirmation() {
     return [];
   };
 
+  const getBookingPackageIds = (): number[] => {
+    if (Array.isArray(bookingData.package_ids) && bookingData.package_ids.length > 0) {
+      return bookingData.package_ids
+        .map((id) => Number(id))
+        .filter((id) => id > 0);
+    }
+
+    if (bookingData.package_id) {
+      return [Number(bookingData.package_id)];
+    }
+
+    return [];
+  };
+
   const getSpaceSummaryLabel = (): string => {
     const selectedSpaceItems = (bookingData._selected_items ?? []).filter(
       (item) => item.type === "sb_space",
@@ -165,6 +194,10 @@ export function Step6Confirmation() {
       selectedSpaceItems.map((item) => Number(item.id)),
     );
     const packageSpaceIds = getPackageSpaceIds();
+    const includedSpaceTitlesFromMeta = (bookingData._package_inclusions ?? [])
+      .filter((inc: PackageInclusion) => inc.type === "sb_space" && !!inc.title)
+      .map((inc: PackageInclusion) => inc.title.trim())
+      .filter((title: string) => title.length > 0);
     const labels = selectedSpaceItems.map((item) => {
       const isPackageIncluded = packageSpaceIds.includes(Number(item.id));
       return `${item.title}${isPackageIncluded ? " (Package)" : ""}`;
@@ -179,8 +212,18 @@ export function Step6Confirmation() {
         index === 0
           ? packageData?.space_name || `Space #${spaceId}`
           : `Space #${spaceId}`;
-      const shouldTagAsPackage = selectedSpaceItems.length > 0 || index > 0;
-      labels.push(`${title}${shouldTagAsPackage ? " (Package)" : ""}`);
+      labels.push(`${title} (Package)`);
+    });
+
+    includedSpaceTitlesFromMeta.forEach((title) => {
+      const exists = labels.some(
+        (label) =>
+          label.toLowerCase() === title.toLowerCase() ||
+          label.toLowerCase() === `${title.toLowerCase()} (package)`,
+      );
+      if (!exists) {
+        labels.push(`${title} (Package)`);
+      }
     });
 
     if (labels.length > 0) {
@@ -190,14 +233,80 @@ export function Step6Confirmation() {
     if (packageSpaceIds.length > 0) {
       return packageSpaceIds
         .map((spaceId, index) => {
-          return index === 0
+          const title = index === 0
             ? packageData?.space_name || `Space #${spaceId}`
             : `Space #${spaceId}`;
+          return `${title} (Package)`;
         })
         .join(", ");
     }
 
     return bookingData._space_title || `Space #${bookingData.space_id}`;
+  };
+
+  const getPackageIncludedExtras = (): Array<{
+    extra_id?: number;
+    title: string;
+  }> => {
+    const byTitle = new Set<string>();
+    const included: Array<{ extra_id?: number; title: string }> = [];
+
+    const metaInclusions = (bookingData._package_inclusions ?? []).filter(
+      (inc: PackageInclusion) => inc.type === "sb_extra" && !!inc.title,
+    );
+
+    metaInclusions.forEach((inc: PackageInclusion) => {
+      const title = inc.title.trim();
+      if (!title || byTitle.has(title.toLowerCase())) return;
+      byTitle.add(title.toLowerCase());
+      included.push({ title });
+    });
+
+    if (packageData?.extra_ids && Array.isArray(packageData.extra_ids)) {
+      packageData.extra_ids.forEach((extraId: number) => {
+        const detail = bookingData._extras_details?.find(
+          (extra: ExtraDetail) => extra.extra_id === extraId,
+        );
+        const title = detail?.extra_name || detail?.title || `Extra #${extraId}`;
+        const key = title.toLowerCase();
+        if (byTitle.has(key)) return;
+        byTitle.add(key);
+        included.push({ extra_id: extraId, title });
+      });
+    }
+
+    return included;
+  };
+
+  const getExtrasDisplayItems = (): Array<{
+    key: string;
+    title: string;
+    quantity?: number;
+    unit_price?: number;
+    isPackage: boolean;
+  }> => {
+    const regularExtras =
+      bookingData._extras_details?.map((e: ExtraDetail) => ({
+        key: `regular-${e.extra_id}`,
+        title: e.extra_name || e.title || getExtraTitle(e.extra_id),
+        quantity: e.quantity,
+        unit_price: e.unit_price,
+        isPackage: false,
+      })) ?? [];
+
+    const existingTitles = new Set(
+      regularExtras.map((e) => e.title.trim().toLowerCase()),
+    );
+
+    const packageExtras = getPackageIncludedExtras()
+      .filter((e) => !existingTitles.has(e.title.trim().toLowerCase()))
+      .map((e, index) => ({
+        key: `package-${e.extra_id ?? index}-${e.title}`,
+        title: e.title,
+        isPackage: true,
+      }));
+
+    return [...regularExtras, ...packageExtras];
   };
 
   return (
@@ -274,7 +383,7 @@ export function Step6Confirmation() {
       )}
 
             {/* Display package inclusions if booking includes a package */}
-          {bookingData.package_id && packageData && (
+            {getBookingPackageIds().length > 0 && packageData && (
             <tr>
               <th>Package Inclusions</th>
               <td>
@@ -356,18 +465,18 @@ export function Step6Confirmation() {
             <tr>
               <th>Extras</th>
               <td>
-                {bookingData._extras_details &&
-                bookingData._extras_details.length > 0 ? (
+                {getExtrasDisplayItems().length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {bookingData._extras_details.map((e: ExtraDetail) => (
-                      <li key={e.extra_id}>
-                        {e.extra_name || e.title || getExtraTitle(e.extra_id)}
-                        {e.quantity > 1 && ` × ${e.quantity}`}
-                        {e.unit_price > 0 && (
+                    {getExtrasDisplayItems().map((e) => (
+                      <li key={e.key}>
+                        {e.title}
+                        {e.isPackage ? " (Package)" : ""}
+                        {!e.isPackage && (e.quantity ?? 0) > 1 && ` × ${e.quantity}`}
+                        {!e.isPackage && (e.unit_price ?? 0) > 0 && (
                           <span style={{ color: "#666", fontSize: "0.9em" }}>
                             {" "}
                             ({window.sbConfig.symbol}
-                            {e.unit_price.toFixed(2)})
+                            {(e.unit_price ?? 0).toFixed(2)})
                           </span>
                         )}
                       </li>
