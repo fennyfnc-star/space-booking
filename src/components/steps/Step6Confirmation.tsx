@@ -139,6 +139,67 @@ export function Step6Confirmation() {
   const getExtraTitle = (extraId: number, extra_name?: string) =>
     extra_name || `Extra #${extraId}`;
 
+  const getPackageSpaceIds = (): number[] => {
+    if (!packageData) {
+      return [];
+    }
+
+    if (Array.isArray(packageData.space_ids) && packageData.space_ids.length > 0) {
+      return packageData.space_ids
+        .map((id: number) => Number(id))
+        .filter((id: number) => id > 0);
+    }
+
+    if (packageData.space_id) {
+      return [Number(packageData.space_id)];
+    }
+
+    return [];
+  };
+
+  const getSpaceSummaryLabel = (): string => {
+    const selectedSpaceItems = (bookingData._selected_items ?? []).filter(
+      (item) => item.type === "sb_space",
+    );
+    const selectedSpaceIds = new Set(
+      selectedSpaceItems.map((item) => Number(item.id)),
+    );
+    const packageSpaceIds = getPackageSpaceIds();
+    const labels = selectedSpaceItems.map((item) => {
+      const isPackageIncluded = packageSpaceIds.includes(Number(item.id));
+      return `${item.title}${isPackageIncluded ? " (Package)" : ""}`;
+    });
+
+    packageSpaceIds.forEach((spaceId, index) => {
+      if (selectedSpaceIds.has(spaceId)) {
+        return;
+      }
+
+      const title =
+        index === 0
+          ? packageData?.space_name || `Space #${spaceId}`
+          : `Space #${spaceId}`;
+      const shouldTagAsPackage = selectedSpaceItems.length > 0 || index > 0;
+      labels.push(`${title}${shouldTagAsPackage ? " (Package)" : ""}`);
+    });
+
+    if (labels.length > 0) {
+      return labels.join(", ");
+    }
+
+    if (packageSpaceIds.length > 0) {
+      return packageSpaceIds
+        .map((spaceId, index) => {
+          return index === 0
+            ? packageData?.space_name || `Space #${spaceId}`
+            : `Space #${spaceId}`;
+        })
+        .join(", ");
+    }
+
+    return bookingData._space_title || `Space #${bookingData.space_id}`;
+  };
+
   return (
     <div className="sb-step sb-step-6">
       {/* Success banner */}
@@ -193,14 +254,7 @@ export function Step6Confirmation() {
             </tr> */}
             <tr>
               <th>Space</th>
-              <td>
-                {bookingData._space_titles && bookingData._space_titles.length > 0
-                  ? bookingData._space_titles.join(", ")
-                  : bookingData._space_title ||
-                    (bookingData._selected_items?.length === 1
-                      ? bookingData._selected_items[0].title
-                      : `Space #${bookingData.space_id}`)}
-              </td>
+              <td>{getSpaceSummaryLabel()}</td>
             </tr>
             {bookingData._selected_items &&
               bookingData._selected_items.length > 1 && (
@@ -227,19 +281,27 @@ export function Step6Confirmation() {
                 {(() => {
                   const selectedSpaces = new Map(
                     (bookingData._selected_items ?? [])
-                      .filter((item) => item.type === "space")
+                      .filter((item) => item.type === "sb_space")
                       .map((item) => [item.id, item.title]),
                   );
+                  const packageSpaceIds = getPackageSpaceIds();
 
                   return (
                   <div className="sb-package-breakdown">
                     <div className="text-sm mb-2">
                       <strong>{packageData.title}</strong> includes:
                     </div>
-                    {packageData.space_ids && packageData.space_ids.length > 0 && (
+                    {packageSpaceIds.length > 0 && (
                       <div className="mb-2">
-                        <span className="font-medium">Spaces:</span> {packageData.space_ids
-                          .map((spaceId: number) => selectedSpaces.get(spaceId) ?? `Space #${spaceId}`)
+                        <span className="font-medium">Spaces:</span> {packageSpaceIds
+                          .map((spaceId: number, index: number) => {
+                            const title =
+                              selectedSpaces.get(spaceId) ??
+                              (index === 0
+                                ? packageData.space_name || `Space #${spaceId}`
+                                : `Space #${spaceId}`);
+                            return `${title} (Package)`;
+                          })
                           .join(', ')}
                       </div>
                     )}

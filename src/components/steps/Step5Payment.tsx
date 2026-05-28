@@ -168,6 +168,74 @@ export function Step5Payment() {
     return `${hour}:${minutes} ${period}`;
   };
 
+  const getPackageSpaceIds = (pkg?: Package): number[] => {
+    if (!pkg) return [];
+
+    if (Array.isArray(pkg.space_ids) && pkg.space_ids.length > 0) {
+      return pkg.space_ids.map((id) => Number(id)).filter((id) => id > 0);
+    }
+
+    if (pkg.space_id) {
+      return [Number(pkg.space_id)];
+    }
+
+    return [];
+  };
+
+  const getSpaceSummaryLabel = (): string => {
+    const packageItems = selectedItems.filter(
+      (item) => item.type === "package",
+    ) as Package[];
+    const explicitSpaces = selectedItems.filter(
+      (item) => item.type === "space",
+    );
+    const explicitSpaceIds = new Set(explicitSpaces.map((item) => Number(item.id)));
+    const packageSpaceIds = new Set<number>();
+
+    packageItems.forEach((pkg) => {
+      getPackageSpaceIds(pkg).forEach((spaceId) => {
+        packageSpaceIds.add(spaceId);
+      });
+    });
+
+    const labels = explicitSpaces.map((item) => {
+      const isPackageIncluded = packageSpaceIds.has(Number(item.id));
+      return `${item.title}${isPackageIncluded ? " (Package)" : ""}`;
+    });
+
+    packageItems.forEach((pkg) => {
+      const packageIds = getPackageSpaceIds(pkg);
+      packageIds.forEach((spaceId, index) => {
+        if (explicitSpaceIds.has(spaceId)) {
+          return;
+        }
+
+        const title =
+          index === 0
+            ? pkg.space_name || `Space #${spaceId}`
+            : `Space #${spaceId}`;
+        const shouldTagAsPackage = explicitSpaces.length > 0 || index > 0;
+        labels.push(`${title}${shouldTagAsPackage ? " (Package)" : ""}`);
+      });
+    });
+
+    if (labels.length > 0) {
+      return labels.join(", ");
+    }
+
+    const fallbackPackage = packageItems[0];
+    if (fallbackPackage) {
+      const packageIds = getPackageSpaceIds(fallbackPackage);
+      if (packageIds.length > 0) {
+        const primarySpaceId = packageIds[0];
+        return fallbackPackage.space_name || `Space #${primarySpaceId}`;
+      }
+      return fallbackPackage.title || "No space selected";
+    }
+
+    return "No space selected";
+  };
+
   return (
     <div className="sb-step sb-step-5">
       <h2 className="sb-step__title">Complete Booking</h2>
@@ -177,24 +245,7 @@ export function Step5Payment() {
         <div className="sb-summary-grid">
           <div className="sb-summary-row">
             <span>Space</span>
-            <span>
-              {(() => {
-                const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
-                const packageSpaceIds = packageItem?.space_ids || [];
-                const packagePrimarySpaceId = packageItem?.space_id;
-                const spaceTitles = selectedItems
-                  .filter((item) => item.type === "space")
-                  .map((item) => {
-                    const isPackageInclusion = 
-                      packageSpaceIds.includes(Number(item.id)) || 
-                      (packagePrimarySpaceId && Number(item.id) === packagePrimarySpaceId);
-                    return item.title + (isPackageInclusion ? " (Package)" : "");
-                  });
-                return spaceTitles.length > 0
-                  ? spaceTitles.join(", ")
-                  : (selectedItems[0]?.title ?? "No space selected");
-              })()}
-            </span>
+            <span>{getSpaceSummaryLabel()}</span>
           </div>
           <div className="sb-summary-row">
             <span>Date</span>

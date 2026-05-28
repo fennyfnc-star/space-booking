@@ -61,7 +61,7 @@ function sb_format_time_12hour(string $time): string
 
 .sb-calendar-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(7, 1fr);
     gap: 12px;
 }
 
