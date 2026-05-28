@@ -85,7 +85,6 @@ export function Step1Selection() {
       const result = packageCoverage.some((pc) =>
         pc.coveredSpaceIds.includes(itemId),
       );
-      console.log("🔍 isCoveredByPackage:", itemId, "result:", result, "packageCoverage:", packageCoverage);
       return result;
     },
     [packageCoverage],
@@ -97,7 +96,6 @@ export function Step1Selection() {
       const result = packageCoverage.find((pc) =>
         pc.coveredSpaceIds.includes(spaceId),
       );
-      console.log("🔍 getCoveringPackage:", spaceId, "result:", result);
       return result;
     },
     [packageCoverage],
@@ -114,7 +112,6 @@ export function Step1Selection() {
       const hasSelectedSpace = selectedItems.some((sel) =>
         pkg.space_ids!.includes(Number(sel.id)),
       );
-      console.log("🔒 isPackageBlockedBySelection:", item.id, "space_ids:", pkg.space_ids, "hasSelectedSpace:", hasSelectedSpace);
       return hasSelectedSpace;
     },
     [selectedItems],
@@ -149,8 +146,6 @@ export function Step1Selection() {
     // Card is locked if either locked by physical overlap OR blocked by selected spaces
     const isCardLocked = locked || packageBlocked;
     
-    console.log("🎴 renderCard:", itemId, "type:", type, "selected:", selected, "locked:", locked, "covered:", covered, "packageBlocked:", packageBlocked);
-
     return (
       <div
         key={itemId}
@@ -372,7 +367,6 @@ export function Step1Selection() {
                 className="w-full sb-btn sb-btn--secondary py-3"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  console.log("Clear cart & start new booking");
                 }}
               >
                 Delete Previous & Start Again

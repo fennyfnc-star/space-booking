@@ -76,7 +76,6 @@ export function Step7Confirmation() {
           return res.json();
         })
         .then(async (data) => {
-          console.log("BOOKING DATA: ", data);
           setBookingData(data);
           
           // If booking includes a package, fetch package details

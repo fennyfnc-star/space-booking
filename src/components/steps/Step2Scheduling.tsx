@@ -142,12 +142,10 @@ export function Step2Scheduling() {
 
   useEffect(() => {
     if (!resourceMap) {
-      console.log("ARRAY-ONLY: Loading resourceMap...");
       useBookingStore
         .getState()
         .loadResourceMap()
         .then(() => {
-          console.log("ARRAY-ONLY: ResourceMap loaded, ready");
           setIsMapReady(true);
         });
     } else {
@@ -160,7 +158,6 @@ export function Step2Scheduling() {
   // CRITICAL: Re-fetch when EITHER isMapReady OR selectedItems changes
   useEffect(() => {
     if (!isMapReady) {
-      console.log("ARRAY-ONLY: Waiting for resourceMap to be ready...");
       return;
     }
 
@@ -168,8 +165,6 @@ export function Step2Scheduling() {
     // Uses Append/Remove pattern with cumulative group selection
     // Resolve selected items to space IDs (handle packages)
     const freshSpaceIds = getLockedResourceIds();
-    console.log("PHASE 3 CHECK - Sending Group:", freshSpaceIds);
-    console.log("ARRAY-ONLY: Computed freshSpaceIds:", freshSpaceIds);
 
     // FIX BUG 2: Separate spaces from packages
     // - Only add EXPLICITLY selected spaces to spaceIds
@@ -180,11 +175,6 @@ export function Step2Scheduling() {
     const packageIds = selectedItems
       .filter((item) => item.type === "package")
       .map((item) => Number(item.id));
-
-    console.log("DEBUG selectedItems:", selectedItems.map(i => ({id: i.id, type: i.type, title: i.title})));
-    console.log("DEBUG freshSpaceIds:", freshSpaceIds);
-    console.log("DEBUG resourceMap types:", freshSpaceIds.map(id => ({id, type: resourceMap?.[id]?.type})));
-    console.log("DEBUG packageIds (raw):", packageIds);
 
     // Add ALL selected spaces (including package's included spaces)
     // Frontend resolves package's space_ids so backend gets complete list
@@ -217,13 +207,6 @@ export function Step2Scheduling() {
     // Dedupe
     spaceIds = [...new Set(spaceIds)];
 
-    console.log("📍 Resolved spaceIds for availability:", spaceIds, "packageIds:", packageIds);
-
-    // Debug: log what each space has booked
-    if (spaceIds.length > 0) {
-      console.log("DEBUG: Checking availability for spaces:", spaceIds);
-    }
-
     // FIX: Allow API call when packages are selected (even without explicit spaces)
     // Package-only bookings should resolve to their included space
     if (!selectedDate || (spaceIds.length === 0 && packageIds.length === 0)) {
@@ -233,14 +216,6 @@ export function Step2Scheduling() {
       return;
     }
 
-    console.group("AVAILABILITY LOAD");
-    // CRITICAL: Log ACTUAL IDs being sent - this proves full union is sent
-    console.log("ARRAY-ONLY: Sending Group:", spaceIds, "date:", selectedDate);
-    console.log(
-      "DEBUG: selectedItems IDs:",
-      selectedItems.map((i) => i.id),
-    );
-    console.log("DEBUG: fresh lockedResourceIds:", freshSpaceIds);
     setLoading(true);
     setError("");
     setApiResponse(null);
@@ -250,9 +225,6 @@ export function Step2Scheduling() {
     // UPDATED: Now passes packageIds for package-space conflict detection
     fetchMultiAvailability(spaceIds, selectedDate, packageIds)
       .then((res) => {
-        console.log("AVAILABILITY RES:", res);
-        console.log("slots:", res.slots);
-
         // Extract blockers
         if (res.blockers && res.blockers.length > 0) {
           setBlockers(res.blockers);
@@ -268,7 +240,6 @@ export function Step2Scheduling() {
         });
         setSlots(sortedSlots);
         setApiResponse(res);
-        console.groupEnd();
       })
       .catch((e: Error) => {
         console.error("AVAIL ERROR:", e.message);

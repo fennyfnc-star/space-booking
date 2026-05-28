@@ -58,12 +58,6 @@ export function Step6Payment() {
 
       try {
         const res = await fetchPricing(pricingParams);
-        console.group("💰 STEP6 PRICING RESPONSE");
-        console.log("pricingParams:", pricingParams);
-        console.log("res:", res);
-        console.log("res.breakdown:", res.breakdown);
-        console.log("res.total_price:", res.total_price);
-        console.groupEnd();
         useBookingStore
           .getState()
           .setPriceBreakdown(res.breakdown, res.total_price);

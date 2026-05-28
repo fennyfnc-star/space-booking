@@ -60,7 +60,6 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
           // Cart empty, no persisted state to clear
         }
       } catch (e) {
-        console.error("Cart check on app init failed:", e);
         // Assume empty on error, no persisted state to clear
       }
     };

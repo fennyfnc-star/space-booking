@@ -73,7 +73,6 @@ export function Step7Confirmation() {
           return res.json();
         })
         .then((data) => {
-          console.log("BOOKING DATA: ", data);
           setBookingData(data);
           setLoading(false);
         })
