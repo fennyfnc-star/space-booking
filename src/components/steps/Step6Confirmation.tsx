@@ -9,7 +9,8 @@ interface SelectedItem {
 
 interface ExtraDetail {
   extra_id: number;
-  extra_name: string;
+  extra_name?: string;
+  title?: string;
   quantity: number;
   unit_price: number;
 }
@@ -53,14 +54,16 @@ interface BookingData {
     | Array<{ extra_id: number; quantity: number; title?: string }>;
   _extras_details?: ExtraDetail[];
   _price_breakdown?: PriceBreakdownItem[];
+  _package_inclusions?: Array<{ type: string; title: string; label?: string }>;
   notes?: string;
 }
 
-export function Step7Confirmation() {
+export function Step6Confirmation() {
   const bookingStatus = useBookingStore((s) => s.bookingStatus);
   const bookingId = useBookingStore((s) => s.bookingId);
   const reset = useBookingStore((s) => s.reset);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
+  const [packageData, setPackageData] = useState<any>(null); // Store for package details if booking includes a package
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -72,8 +75,23 @@ export function Step7Confirmation() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
         })
-        .then((data) => {
+        .then(async (data) => {
           setBookingData(data);
+
+          // If booking includes a package, fetch package details
+          if (data.package_id) {
+            try {
+              const packageRes = await fetch(`${window.sbConfig.apiBase}/packages`);
+              if (packageRes.ok) {
+                const allPackages = await packageRes.json();
+                const packageDetails = allPackages.find((pkg: any) => pkg.id === data.package_id);
+                setPackageData(packageDetails);
+              }
+            } catch (err) {
+              console.error("Failed to fetch package details:", err);
+            }
+          }
+
           setLoading(false);
         })
         .catch((err) => {
@@ -88,7 +106,7 @@ export function Step7Confirmation() {
 
   if (loading) {
     return (
-      <div className="sb-step sb-step-7">
+      <div className="sb-step sb-step-6">
         <p>Loading booking details...</p>
       </div>
     );
@@ -96,7 +114,7 @@ export function Step7Confirmation() {
 
   if (error || !bookingData) {
     return (
-      <div className="sb-step sb-step-7">
+      <div className="sb-step sb-step-6">
         <p className="sb-error">{error || "Booking details not available."}</p>
         <button
           className="sb-btn sb-btn--primary"
@@ -122,7 +140,7 @@ export function Step7Confirmation() {
     extra_name || `Extra #${extraId}`;
 
   return (
-    <div className="sb-step sb-step-7">
+    <div className="sb-step sb-step-6">
       {/* Success banner */}
       <div className="sb-confirm-banner">
         <span className="sb-confirm-icon" aria-hidden="true">
@@ -173,10 +191,21 @@ export function Step7Confirmation() {
                     `Space #${bookingData.space_id}`}
               </td>
             </tr> */}
+            <tr>
+              <th>Space</th>
+              <td>
+                {bookingData._space_titles && bookingData._space_titles.length > 0
+                  ? bookingData._space_titles.join(", ")
+                  : bookingData._space_title ||
+                    (bookingData._selected_items?.length === 1
+                      ? bookingData._selected_items[0].title
+                      : `Space #${bookingData.space_id}`)}
+              </td>
+            </tr>
             {bookingData._selected_items &&
               bookingData._selected_items.length > 1 && (
                 <tr>
-                  <th>Selected Spaces</th>
+                  <th>Selected Items</th>
                   <td>
                     <ul style={{ margin: 0, paddingLeft: "20px" }}>
                       {bookingData._selected_items?.map((item) => (
@@ -184,11 +213,55 @@ export function Step7Confirmation() {
                           {item.type === "sb_package" ? "📦" : "🏠"}{" "}
                           {item.title}
                         </li>
-                      ))}
-                    </ul>
-                  </td>
-                </tr>
-              )}
+              ))}
+            </ul>
+          </td>
+        </tr>
+      )}
+
+            {/* Display package inclusions if booking includes a package */}
+          {bookingData.package_id && packageData && (
+            <tr>
+              <th>Package Inclusions</th>
+              <td>
+                {(() => {
+                  const selectedSpaces = new Map(
+                    (bookingData._selected_items ?? [])
+                      .filter((item) => item.type === "space")
+                      .map((item) => [item.id, item.title]),
+                  );
+
+                  return (
+                  <div className="sb-package-breakdown">
+                    <div className="text-sm mb-2">
+                      <strong>{packageData.title}</strong> includes:
+                    </div>
+                    {packageData.space_ids && packageData.space_ids.length > 0 && (
+                      <div className="mb-2">
+                        <span className="font-medium">Spaces:</span> {packageData.space_ids
+                          .map((spaceId: number) => selectedSpaces.get(spaceId) ?? `Space #${spaceId}`)
+                          .join(', ')}
+                      </div>
+                    )}
+                    {packageData.extra_ids && packageData.extra_ids.length > 0 && (
+                      <div>
+                        <span className="font-medium">Extras:</span> {packageData.extra_ids
+                          .map((extraId: number) => {
+                            // Look for extra in booking extras or return placeholder
+                            const bookingExtra = bookingData._extras_details?.find(
+                              (extra: ExtraDetail) => extra.extra_id === extraId
+                            );
+                            return bookingExtra ? bookingExtra.title || `Extra #${extraId}` : `Extra #${extraId}`;
+                          })
+                          .join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  );
+                })()}
+                </td>
+              </tr>
+            )}
             <tr>
               <th>Date</th>
               <td>{bookingData.booking_date}</td>
@@ -224,7 +297,7 @@ export function Step7Confirmation() {
                 {bookingData._extras_details &&
                 bookingData._extras_details.length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {bookingData._extras_details.map((e: any) => (
+                    {bookingData._extras_details.map((e: ExtraDetail) => (
                       <li key={e.extra_id}>
                         {e.extra_name || e.title || getExtraTitle(e.extra_id)}
                         {e.quantity > 1 && ` × ${e.quantity}`}

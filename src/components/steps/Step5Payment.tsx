@@ -3,7 +3,7 @@ import { useBookingStore } from "@/store/bookingStore";
 import { createBooking, fetchPricing } from "@/utils/api";
 import type { Package, Space } from "@/types";
 
-export function Step6Payment() {
+export function Step5Payment() {
   const {
     checkoutUrl,
     priceBreakdown,
@@ -169,7 +169,7 @@ export function Step6Payment() {
   };
 
   return (
-    <div className="sb-step sb-step-6">
+    <div className="sb-step sb-step-5">
       <h2 className="sb-step__title">Complete Booking</h2>
       <div className="sb-checkout-summary">
         <h3>Final Review</h3>

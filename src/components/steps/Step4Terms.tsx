@@ -69,7 +69,7 @@ function sanitizeBookingPolicy(policy: string): string {
   });
 }
 
-export function Step5Terms() {
+export function Step4Terms() {
   const { nextStep, prevStep } = useBookingStore();
   const policyRef = useRef<HTMLDivElement | null>(null);
   const [bookingPolicy, setBookingPolicy] = useState(() =>
@@ -121,7 +121,7 @@ export function Step5Terms() {
 
   if (!bookingPolicy) {
     return (
-      <div className="sb-step sb-step-5">
+      <div className="sb-step sb-step-4">
         <h2 className="sb-step__title">Terms & Agreement</h2>
         <div className="sb-error">
           Booking policy not configured. Please contact administrator.
@@ -136,7 +136,7 @@ export function Step5Terms() {
   }
 
   return (
-    <div className="sb-step sb-step-5">
+    <div className="sb-step sb-step-4">
       <h2 className="sb-step__title">Terms & Agreement</h2>
 
       <div className="sb-policy-container">

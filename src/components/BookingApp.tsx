@@ -6,10 +6,9 @@ import { StepProgress } from "./shared/StepProgress";
 import { Step1Selection } from "./steps/Step1Selection";
 import { Step2Scheduling } from "./steps/Step2Scheduling";
 import { Step3Addons } from "./steps/Step3Addons";
-// Step4Details removed - customer details not required
-import { Step5Terms } from "./steps/Step5Terms";
-import { Step6Payment } from "./steps/Step6Payment";
-import { Step7Confirmation } from "./steps/Step7Confirmation";
+import { Step4Terms } from "./steps/Step4Terms";
+import { Step5Payment } from "./steps/Step5Payment";
+import { Step6Confirmation } from "./steps/Step6Confirmation";
 
 interface Props {
   preSpaceId?: number;
@@ -108,9 +107,9 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
         {currentStep === 1 && <Step1Selection />}
         {currentStep === 2 && <Step2Scheduling />}
         {currentStep === 3 && <Step3Addons />}
-        {currentStep === 4 && <Step5Terms />}
-        {currentStep === 5 && <Step6Payment />}
-        {currentStep === 6 && <Step7Confirmation />}
+        {currentStep === 4 && <Step4Terms />}
+        {currentStep === 5 && <Step5Payment />}
+        {currentStep === 6 && <Step6Confirmation />}
       </div>
     </div>
   );
