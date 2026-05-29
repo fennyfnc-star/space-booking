@@ -115,9 +115,6 @@ final class AdminMenu
 			'sb_buffer_pre_minutes' => 'absint',
 			'sb_buffer_post_minutes' => 'absint',
 			'sb_currency' => 'sanitize_text_field',
-			'sb_stripe_publishable_key' => 'sanitize_text_field',
-			'sb_stripe_secret_key' => 'sanitize_text_field',
-			'sb_stripe_webhook_secret' => 'sanitize_text_field',
 			'sb_admin_email' => 'sanitize_email',
 			'sb_email_from_name' => 'sanitize_text_field',
 			'sb_magic_link_ttl_minutes' => 'absint',
@@ -271,9 +268,6 @@ final class AdminMenu
             <?php \SpaceBooking\Services\CurrencyService::render_select('sb_currency'); ?><p class="description">
                 <?php esc_html_e('Select your currency. Prices will be displayed with the appropriate symbol.', 'space-booking'); ?>
             </p>
-            <?php $this->settings_row('sb_stripe_publishable_key', __('Stripe Publishable Key', 'space-booking'), 'text'); ?>
-            <?php $this->settings_row('sb_stripe_secret_key', __('Stripe Secret Key', 'space-booking'), 'password'); ?>
-            <?php $this->settings_row('sb_stripe_webhook_secret', __('Stripe Webhook Secret', 'space-booking'), 'password'); ?>
             <?php $this->settings_row('sb_admin_email', __('Admin Notification Email', 'space-booking'), 'email'); ?>
             <?php $this->settings_row('sb_email_from_name', __('Email From Name', 'space-booking'), 'text'); ?>
             <?php $this->settings_row('sb_magic_link_ttl_minutes', __('Magic Link TTL (minutes)', 'space-booking'), 'number'); ?>

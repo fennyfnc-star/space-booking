@@ -148,9 +148,6 @@ final class Installer
 		add_option('sb_global_close_time', '22:00');
 		add_option('sb_slot_interval_minutes', '60');
 		add_option('sb_currency', 'usd');
-		add_option('sb_stripe_publishable_key', '');
-		add_option('sb_stripe_secret_key', '');
-		add_option('sb_stripe_webhook_secret', '');
 		add_option('sb_admin_email', get_option('admin_email'));
 		add_option('sb_email_from_name', get_option('blogname'));
 		add_option('sb_magic_link_ttl_minutes', '30');

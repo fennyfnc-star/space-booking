@@ -7,7 +7,6 @@ use SpaceBooking\Services\RecaptchaService;
 use SpaceBooking\Services\BookingSpamGuard;
 use SpaceBooking\Services\InventoryService;
 use SpaceBooking\Services\PricingService;
-use SpaceBooking\Services\StripeService;
 use WP_REST_Controller;
 use WP_REST_Request;
 use WP_REST_Response;
