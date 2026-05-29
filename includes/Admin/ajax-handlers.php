@@ -430,6 +430,45 @@ add_action('wp_ajax_sb_update_booking_status', function () {
     }
 });
 
+add_action('wp_ajax_sb_booking_lifecycle_action', function () {
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+
+    check_ajax_referer('sb_update_booking', '_wpnonce');
+
+    $booking_id = absint($_POST['booking_id'] ?? 0);
+    $lifecycle_action = sanitize_key($_POST['lifecycle_action'] ?? '');
+    if ($booking_id <= 0 || !in_array($lifecycle_action, ['trash', 'restore', 'delete_permanently'], true)) {
+        wp_send_json_error('Invalid input');
+    }
+
+    $repo = new \SpaceBooking\Services\BookingRepository();
+    $booking = $repo->find($booking_id);
+    if (!$booking) {
+        wp_send_json_error('Booking not found');
+    }
+
+    $actor_user_id = get_current_user_id();
+    $ok = false;
+    if ($lifecycle_action === 'trash') {
+        $ok = $repo->move_to_trash($booking_id, $actor_user_id);
+    } elseif ($lifecycle_action === 'restore') {
+        $ok = $repo->restore_from_trash($booking_id, $actor_user_id);
+    } elseif ($lifecycle_action === 'delete_permanently') {
+        $ok = $repo->delete_permanently($booking_id, $actor_user_id);
+    }
+
+    if (!$ok) {
+        wp_send_json_error('Failed to apply lifecycle action');
+    }
+
+    wp_send_json_success([
+        'booking_id' => $booking_id,
+        'lifecycle_action' => $lifecycle_action,
+    ]);
+});
+
 // Enqueue edit page scripts (only on booking edit page)
 add_action('admin_enqueue_scripts', function ($hook) {
     $screen = get_current_screen();

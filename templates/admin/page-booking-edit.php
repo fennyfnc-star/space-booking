@@ -237,11 +237,12 @@ $calculated_total = $spaces_subtotal + $packages_subtotal + $extras_subtotal;
 $display_total = $linked_order ? (float) $linked_order->get_total() : (float) ($booking['total_price'] ?? $calculated_total);
 
 // Status options
-$statuses = ['pending' => 'Pending', 'in_review' => 'In Review', 'confirmed' => 'Confirmed'];
+$statuses = ['pending' => 'Pending', 'in_review' => 'In Review', 'confirmed' => 'Confirmed', 'trashed' => 'Trashed'];
 $status_color = [
     'pending' => '#fff3cd',
     'in_review' => '#cce5ff',
-    'confirmed' => '#d4edda'
+    'confirmed' => '#d4edda',
+    'trashed' => '#f8d7da'
 ];
 ?>
 <style>
@@ -366,6 +367,15 @@ $status_color = [
 
 .btn-secondary:hover {
     background: #50565b;
+}
+
+.btn-danger {
+    background: #b32d2e;
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #8f2424;
 }
 
 #sb-status-preview {
@@ -621,6 +631,15 @@ $status_color = [
                 <button type="button" class="btn btn-secondary" onclick="history.back()">Cancel</button>
             </div>
         </form>
+        <hr style="margin:18px 0;">
+        <div class="sb-actions">
+            <?php if (($booking['status'] ?? '') !== 'trashed'): ?>
+            <button type="button" class="btn btn-secondary sb-lifecycle-btn" data-action="trash">Move to Trash</button>
+            <?php else: ?>
+            <button type="button" class="btn btn-secondary sb-lifecycle-btn" data-action="restore">Restore</button>
+            <?php endif; ?>
+            <button type="button" class="btn btn-danger sb-lifecycle-btn" data-action="delete_permanently">Delete Permanently</button>
+        </div>
     </div>
 </div>
 
@@ -631,7 +650,8 @@ jQuery(document).ready(function($) {
     const statuses = {
         'pending': '#fff3cd',
         'in_review': '#cce5ff',
-        'confirmed': '#d4edda'
+        'confirmed': '#d4edda',
+        'trashed': '#f8d7da'
     };
 
     // Live status preview
@@ -692,6 +712,41 @@ jQuery(document).ready(function($) {
         toast.css('transform', 'translateX(0)');
         setTimeout(() => toast.remove(), 4000);
     }
+
+    $(document).on('click', '.sb-lifecycle-btn', function() {
+        const lifecycleAction = $(this).data('action');
+        const labels = {
+            trash: 'move this booking to trash',
+            restore: 'restore this booking from trash',
+            delete_permanently: 'permanently delete this booking'
+        };
+        if (!window.confirm('Confirm ' + labels[lifecycleAction] + '?')) {
+            return;
+        }
+
+        const button = $(this).prop('disabled', true);
+        $.post(ajaxurl, {
+            action: 'sb_booking_lifecycle_action',
+            booking_id: <?php echo $booking_id; ?>,
+            lifecycle_action: lifecycleAction,
+            _wpnonce: '<?php echo wp_create_nonce('sb_update_booking'); ?>'
+        }, function(res) {
+            if (res.success) {
+                if (lifecycleAction === 'delete_permanently') {
+                    window.location.href = '<?php echo esc_url(admin_url('admin.php?page=space-booking-bookings')); ?>';
+                    return;
+                }
+                showToast('Lifecycle action applied successfully.', 'success');
+                window.location.reload();
+                return;
+            }
+            showToast('Lifecycle action failed: ' + (res.data || 'Unknown error'), 'error');
+            button.prop('disabled', false);
+        }).fail(function() {
+            showToast('Network error while applying lifecycle action.', 'error');
+            button.prop('disabled', false);
+        });
+    });
 });
 </script>
 </div>

@@ -10,6 +10,8 @@ use WP_Error;
  */
 class BookingRepository
 {
+	private const ALLOWED_STATUSES = ['pending', 'in_review', 'confirmed', 'cancelled', 'refunded', 'trashed', 'deleted'];
+
 	public function find(int $id): ?array
 	{
 		global $wpdb;
@@ -532,9 +534,13 @@ class BookingRepository
 		return $extras ?: [];
 	}
 
-	public function update_status(int $id, string $status): bool
+	public function update_status(int $id, string $status, array $extra_data = []): bool
 	{
 		global $wpdb;
+
+		if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+			return false;
+		}
 
 		$result = $wpdb->update(
 			$wpdb->prefix . 'sb_bookings',
@@ -544,7 +550,51 @@ class BookingRepository
 			['%d']
 		);
 
-		return false !== $result;
+		if (false === $result) {
+			return false;
+		}
+
+		if (!empty($extra_data['admin_feedback'])) {
+			$this->save_meta($id, 'admin_feedback', sanitize_textarea_field((string) $extra_data['admin_feedback']));
+		}
+
+		return true;
+	}
+
+	public function move_to_trash(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking || $booking['status'] === 'trashed') {
+			return false;
+		}
+
+		$updated = $this->update_status($booking_id, 'trashed');
+		if ($updated) {
+			$this->append_audit_log($booking_id, 'booking_trashed', $actor_user_id, [
+				'from_status' => (string) $booking['status'],
+				'to_status' => 'trashed',
+			]);
+		}
+
+		return $updated;
+	}
+
+	public function restore_from_trash(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking || $booking['status'] !== 'trashed') {
+			return false;
+		}
+
+		$updated = $this->update_status($booking_id, 'pending');
+		if ($updated) {
+			$this->append_audit_log($booking_id, 'booking_restored', $actor_user_id, [
+				'from_status' => 'trashed',
+				'to_status' => 'pending',
+			]);
+		}
+
+		return $updated;
 	}
 
 	private function save_extras(int $booking_id, array $extras): void
@@ -740,5 +790,46 @@ class BookingRepository
 		);
 
 		return false !== $result;
+	}
+
+	public function delete_permanently(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking) {
+			return false;
+		}
+
+		$this->append_audit_log($booking_id, 'booking_delete_permanently', $actor_user_id, [
+			'from_status' => (string) ($booking['status'] ?? ''),
+		]);
+
+		$deleted = $this->delete($booking_id);
+		if ($deleted) {
+			error_log(sprintf('SpaceBooking audit: booking #%d permanently deleted by user #%d', $booking_id, $actor_user_id));
+		}
+
+		return $deleted;
+	}
+
+	private function append_audit_log(int $booking_id, string $event, int $actor_user_id, array $context = []): void
+	{
+		$existing_json = $this->get_meta($booking_id, '_sb_audit_log');
+		$entries = [];
+		if (is_string($existing_json) && $existing_json !== '') {
+			$decoded = json_decode($existing_json, true);
+			if (is_array($decoded)) {
+				$entries = $decoded;
+			}
+		}
+
+		$entries[] = [
+			'event' => sanitize_text_field($event),
+			'actor_user_id' => $actor_user_id,
+			'timestamp_gmt' => gmdate('Y-m-d H:i:s'),
+			'context' => $context,
+		];
+
+		$this->save_meta($booking_id, '_sb_audit_log', wp_json_encode($entries));
+		error_log(sprintf('SpaceBooking audit: %s booking #%d by user #%d', $event, $booking_id, $actor_user_id));
 	}
 }

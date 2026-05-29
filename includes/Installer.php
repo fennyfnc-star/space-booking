@@ -44,7 +44,7 @@ final class Installer
 			extras_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
 			modifier_price DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
 			total_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			status        ENUM('pending','in_review','confirmed','cancelled','refunded') NOT NULL DEFAULT 'pending',
+			status        ENUM('pending','in_review','confirmed','cancelled','refunded','trashed','deleted') NOT NULL DEFAULT 'pending',
 			stripe_pi_id   VARCHAR(191)    DEFAULT NULL,
 			notes          TEXT            DEFAULT NULL,
 			lookup_token  VARCHAR(64)     DEFAULT NULL,
@@ -136,6 +136,7 @@ final class Installer
 		(new \SpaceBooking\Migrations\MakeCustomerFieldsOptional())->run();
 		(new \SpaceBooking\Migrations\AddOrderId())->run();
 		(new \SpaceBooking\Migrations\CreateBookingSpacesTable())->run();
+		(new \SpaceBooking\Migrations\AddTrashStatuses())->run();
 
 		update_option('sb_db_version', SB_VERSION);
 	}
