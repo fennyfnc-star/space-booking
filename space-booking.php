@@ -5,7 +5,7 @@
  * Plugin URI:        https://example.com/space-booking
  * Description:       Hourly space rental & shared asset booking plugin with WooCommerce payments.
  * Requires Plugins:   woocommerce
- * Version:           2.1.1
+ * Version:           2.1.2
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Senior WP Architect
