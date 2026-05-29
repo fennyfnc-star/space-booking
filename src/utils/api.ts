@@ -129,6 +129,7 @@ export const createBooking = (payload: {
   notes?: string;
   website_url?: string;
   form_started_at?: number;
+  recaptcha_token?: string;
   extras?: SelectedExtra[];
   price_breakdown?: PriceBreakdownItem[];
 }) =>

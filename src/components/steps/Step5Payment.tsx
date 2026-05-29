@@ -28,6 +28,54 @@ export function Step5Payment() {
   const [checkingCart, setCheckingCart] = useState(true);
   const [error, setError] = useState("");
   const [formStartedAt] = useState<number>(() => Math.floor(Date.now() / 1000));
+  const [recaptchaWidgetId, setRecaptchaWidgetId] = useState<number | null>(null);
+
+  const recaptchaConfig = window.sbConfig?.recaptcha;
+  const recaptchaEnabled = !!recaptchaConfig?.enabled;
+  const recaptchaVersion = recaptchaConfig?.version || "v3";
+  const recaptchaSiteKey = recaptchaConfig?.siteKey || "";
+
+  useEffect(() => {
+    if (!recaptchaEnabled || recaptchaVersion !== "v2" || !recaptchaSiteKey) {
+      return;
+    }
+    const grecaptcha = window.grecaptcha;
+    if (!grecaptcha || recaptchaWidgetId !== null) {
+      return;
+    }
+    grecaptcha.ready(() => {
+      const container = document.getElementById("sb-recaptcha-v2");
+      if (!container) return;
+      const widgetId = grecaptcha.render(container, { sitekey: recaptchaSiteKey });
+      setRecaptchaWidgetId(widgetId);
+    });
+  }, [recaptchaEnabled, recaptchaVersion, recaptchaSiteKey, recaptchaWidgetId]);
+
+  const getRecaptchaToken = async (): Promise<string> => {
+    if (!recaptchaEnabled) {
+      return "";
+    }
+    if (!recaptchaSiteKey || !window.grecaptcha) {
+      throw new Error("Captcha is not configured. Please contact admin.");
+    }
+
+    if (recaptchaVersion === "v2") {
+      const token = window.grecaptcha.getResponse(recaptchaWidgetId ?? undefined);
+      if (!token) {
+        throw new Error("Please complete the captcha challenge.");
+      }
+      return token;
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      window.grecaptcha?.ready(() => {
+        window.grecaptcha
+          ?.execute(recaptchaSiteKey, { action: "space_booking_submit" })
+          .then(resolve)
+          .catch(() => reject(new Error("Captcha token generation failed.")));
+      });
+    });
+  };
 
   // Get first space ID from lockedResourceIds array
   const getFirstSpaceId = (): number => {
@@ -108,6 +156,7 @@ export function Step5Payment() {
     setError("");
 
     try {
+      const recaptchaToken = await getRecaptchaToken();
       const res = await createBooking({
         space_ids: selectedItems
           .filter((item) => item.type === "space")
@@ -125,6 +174,7 @@ export function Step5Payment() {
         notes: String(customerInfo.notes || ""),
         website_url: "",
         form_started_at: formStartedAt,
+        recaptcha_token: recaptchaToken,
         extras: selectedExtras,
         price_breakdown: priceBreakdown,
       });
@@ -292,6 +342,11 @@ export function Step5Payment() {
         </div>
 
         {error && <div className="sb-error">{error}</div>}
+        {recaptchaEnabled && recaptchaVersion === "v2" && (
+          <div style={{ margin: "12px 0" }}>
+            <div id="sb-recaptcha-v2"></div>
+          </div>
+        )}
         <input
           type="text"
           name="website_url"

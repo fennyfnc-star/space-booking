@@ -3,6 +3,7 @@
 namespace SpaceBooking\Controllers;
 
 use SpaceBooking\Services\BookingRepository;
+use SpaceBooking\Services\RecaptchaService;
 use SpaceBooking\Services\BookingSpamGuard;
 use SpaceBooking\Services\InventoryService;
 use SpaceBooking\Services\PricingService;
@@ -22,6 +23,7 @@ final class BookingController extends WP_REST_Controller
 
 	private BookingRepository $repo;
 	private BookingSpamGuard $spam_guard;
+	private RecaptchaService $recaptcha;
 	private InventoryService $inventory;
 	private PricingService $pricing;
 	private \SpaceBooking\Services\WooCommerceService $wc;
@@ -30,6 +32,7 @@ final class BookingController extends WP_REST_Controller
 	{
 		$this->repo = new BookingRepository();
 		$this->spam_guard = new BookingSpamGuard();
+		$this->recaptcha = new RecaptchaService();
 		$this->inventory = new InventoryService();
 		$this->pricing = new PricingService();
 		$this->wc = new \SpaceBooking\Services\WooCommerceService();
@@ -116,6 +119,7 @@ final class BookingController extends WP_REST_Controller
 		$selected_item_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('selected_item_ids'))));
 		$honeypot = sanitize_text_field((string) ($request->get_param('website_url') ?? ''));
 		$form_started_at = (int) $request->get_param('form_started_at');
+		$recaptcha_token = sanitize_text_field((string) ($request->get_param('recaptcha_token') ?? ''));
 		$client_nonce = $request->get_header('X-WP-Nonce');
 		$request_ip = $this->spam_guard->get_request_ip();
 
@@ -187,6 +191,31 @@ final class BookingController extends WP_REST_Controller
 				'end_time' => $end_time,
 			]);
 			return new WP_REST_Response(['message' => 'Duplicate booking detected. Please wait before submitting again.'], 409);
+		}
+
+		$recaptcha_config = $this->recaptcha->get_config();
+		if (empty($recaptcha_config['has_keys'])) {
+			$this->spam_guard->log_suspicious_attempt('recaptcha_keys_missing', ['email' => $email]);
+			return new WP_REST_Response(['message' => 'Booking protection is not configured. Please contact site admin.'], 503);
+		}
+
+		$captcha_verification = $this->recaptcha->verify_token($recaptcha_token, $request_ip, 'space_booking_submit');
+		if (empty($captcha_verification['success'])) {
+			$this->spam_guard->log_suspicious_attempt('recaptcha_verify_failed', [
+				'email' => $email,
+				'reason' => $captcha_verification['message'] ?? 'unknown',
+			]);
+			return new WP_REST_Response(['message' => 'Captcha verification failed. Please try again.'], 422);
+		}
+
+		if ($this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
+			$this->spam_guard->log_suspicious_attempt('duplicate_after_captcha', [
+				'email' => $email,
+				'date' => $date,
+				'start_time' => $start_time,
+				'end_time' => $end_time,
+			]);
+			return new WP_REST_Response(['message' => 'Duplicate booking detected after verification. Please retry later.'], 409);
 		}
 
 		// Build data for booking creation
@@ -563,6 +592,7 @@ final class BookingController extends WP_REST_Controller
 			'notes' => ['required' => false, 'sanitize_callback' => 'sanitize_textarea_field'],
 			'website_url' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'form_started_at' => ['required' => false, 'sanitize_callback' => 'absint'],
+			'recaptcha_token' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'extras' => ['required' => false, 'default' => []],
 			'price_breakdown' => ['required' => false, 'default' => []],
 			'selected_item_ids' => [

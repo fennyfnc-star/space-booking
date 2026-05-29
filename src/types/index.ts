@@ -210,6 +210,18 @@ declare global {
       symbol: string;
       dateFormat: string;
       bookingPolicy: string;
+      recaptcha?: {
+        enabled: boolean;
+        version: "v2" | "v3";
+        siteKey: string;
+      };
+    };
+    grecaptcha?: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+      render: (container: string | HTMLElement, params: Record<string, unknown>) => number;
+      getResponse: (widgetId?: number) => string;
+      reset: (widgetId?: number) => void;
     };
   }
 }
