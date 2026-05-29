@@ -115,6 +115,7 @@ final class BookingController extends WP_REST_Controller
 		$notes = sanitize_textarea_field($request->get_param('notes') ?? '');
 		$marketing_source = sanitize_text_field($request->get_param('marketing_source') ?? '');
 		$frontend_breakdown = $request->get_param('price_breakdown') ?: [];
+		$package_question_answers = $request->get_param('package_question_answers') ?: [];
 		$selected_item_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('selected_item_ids'))));
 		$honeypot = sanitize_text_field((string) ($request->get_param('website_url') ?? ''));
 		$form_started_at = (int) $request->get_param('form_started_at');
@@ -406,6 +407,10 @@ final class BookingController extends WP_REST_Controller
 				$this->repo->save_meta($booking_id, '_sb_package_inclusions', wp_json_encode($inclusions));
 				error_log('SpaceBooking: Saved ' . count($inclusions) . ' package inclusions for booking #' . $booking_id);
 			}
+			$sanitized_package_answers = $this->sanitize_package_question_answers((array) $package_question_answers);
+			if (!empty($sanitized_package_answers)) {
+				$this->repo->save_meta($booking_id, '_sb_package_question_answers', wp_json_encode($sanitized_package_answers));
+			}
 		} catch (\RuntimeException $e) {
 			return new WP_REST_Response(['message' => 'Could not save booking.'], 500);
 		}
@@ -594,6 +599,7 @@ final class BookingController extends WP_REST_Controller
 			'recaptcha_token' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'extras' => ['required' => false, 'default' => []],
 			'price_breakdown' => ['required' => false, 'default' => []],
+			'package_question_answers' => ['required' => false, 'default' => []],
 			'selected_item_ids' => [
 				'required' => true,
 				'type' => 'array',
@@ -602,5 +608,56 @@ final class BookingController extends WP_REST_Controller
 				}
 			],
 		];
+	}
+
+	private function sanitize_package_question_answers(array $answers): array
+	{
+		$sanitized = [];
+		$allowed_types = ['text', 'textarea', 'number', 'radio', 'checkbox', 'select'];
+		foreach ($answers as $entry) {
+			if (!is_array($entry)) {
+				continue;
+			}
+
+			$package_id = absint($entry['package_id'] ?? 0);
+			$field_key = sanitize_key((string) ($entry['field_key'] ?? ''));
+			$field_label = sanitize_text_field((string) ($entry['field_label'] ?? ''));
+			$field_type = sanitize_text_field((string) ($entry['field_type'] ?? 'text'));
+			$value = $entry['value'] ?? null;
+			$others_text = sanitize_textarea_field((string) ($entry['others_text'] ?? ''));
+
+			if ($package_id <= 0 || $field_key === '' || $field_label === '' || !in_array($field_type, $allowed_types, true)) {
+				continue;
+			}
+
+			if (is_array($value)) {
+				$normalized_value = array_values(array_filter(array_map(static function ($item): string {
+					return sanitize_text_field((string) $item);
+				}, $value), static fn(string $v): bool => $v !== ''));
+			} elseif ($field_type === 'number') {
+				$normalized_value = (float) $value;
+			} else {
+				$normalized_value = sanitize_text_field((string) $value);
+			}
+
+			$is_empty = (is_string($normalized_value) && $normalized_value === '')
+				|| (is_array($normalized_value) && empty($normalized_value));
+			if ($is_empty) {
+				continue;
+			}
+
+			$normalized = [
+				'package_id' => $package_id,
+				'field_key' => $field_key,
+				'field_label' => $field_label,
+				'field_type' => $field_type,
+				'value' => $normalized_value,
+			];
+			if ($others_text !== '') {
+				$normalized['others_text'] = $others_text;
+			}
+			$sanitized[] = $normalized;
+		}
+		return $sanitized;
 	}
 }

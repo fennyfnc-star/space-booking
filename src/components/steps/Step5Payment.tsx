@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { createBooking, fetchPricing } from "@/utils/api";
-import type { Package, Space } from "@/types";
+import type { Package, Space, PackageThemeMetaField } from "@/types";
 
 export function Step5Payment() {
   const {
@@ -17,6 +17,7 @@ export function Step5Payment() {
     hasCartBooking,
     checkCartBooking,
     selectedItems,
+    setCustomerField,
   } = useBookingStore();
 
   // Return label as-is from backend
@@ -27,8 +28,13 @@ export function Step5Payment() {
   const [loading, setLoading] = useState(false);
   const [checkingCart, setCheckingCart] = useState(true);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formStartedAt] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [recaptchaWidgetId, setRecaptchaWidgetId] = useState<number | null>(null);
+  const [packageQuestionAnswers, setPackageQuestionAnswers] = useState<
+    Record<string, string | number | string[]>
+  >({});
+  const [packageOthersText, setPackageOthersText] = useState<Record<string, string>>({});
 
   const recaptchaConfig = window.sbConfig?.recaptcha;
   const recaptchaEnabled = !!recaptchaConfig?.enabled;
@@ -152,11 +158,56 @@ export function Step5Payment() {
       return;
     }
 
+    const validationErrors: Record<string, string> = {};
+    const customerName = String(customerInfo.name || "").trim();
+    const customerEmail = String(customerInfo.email || "").trim();
+    if (!customerName) {
+      validationErrors.customer_name = "Full name is required.";
+    }
+    if (!customerEmail) {
+      validationErrors.customer_email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+      validationErrors.customer_email = "Enter a valid email address.";
+    }
+
+    const packageFields = getSelectedPackageQuestionFields();
+    packageFields.forEach((entry) => {
+      const answerKey = packageFieldKey(entry.packageId, entry.field.key);
+      const value = packageQuestionAnswers[answerKey];
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0);
+      if (entry.field.required && isEmpty) {
+        validationErrors[answerKey] = "This field is required.";
+      }
+
+      const othersKey = packageOthersKey(entry.packageId, entry.field.key);
+      const supportsOthers = !!entry.field.allow_others && ["radio", "checkbox", "select"].includes(entry.field.type);
+      const othersSelected =
+        supportsOthers &&
+        ((Array.isArray(value) && value.includes("Others")) || value === "Others");
+      if (othersSelected) {
+        const othersValue = String(packageOthersText[othersKey] || "").trim();
+        if (!othersValue) {
+          validationErrors[othersKey] = "Please describe your \"Others\" answer.";
+        }
+      }
+    });
+
+    setFieldErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) {
+      setError("Please complete all required fields before continuing.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
       const recaptchaToken = await getRecaptchaToken();
+      const normalizedAnswers = buildPackageQuestionPayload();
       const res = await createBooking({
         space_ids: selectedItems
           .filter((item) => item.type === "space")
@@ -168,8 +219,8 @@ export function Step5Payment() {
         date: selectedDate,
         start_time: selectedStartTime,
         end_time: selectedEndTime,
-        customer_name: String(customerInfo.name || ""),
-        customer_email: String(customerInfo.email || ""),
+        customer_name: customerName,
+        customer_email: customerEmail,
         customer_phone: String(customerInfo.phone || ""),
         notes: String(customerInfo.notes || ""),
         website_url: "",
@@ -177,6 +228,7 @@ export function Step5Payment() {
         recaptcha_token: recaptchaToken,
         extras: selectedExtras,
         price_breakdown: priceBreakdown,
+        package_question_answers: normalizedAnswers,
       });
 
       useBookingStore.getState().setCheckoutData({
@@ -192,6 +244,110 @@ export function Step5Payment() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const packageFieldKey = (packageId: number, fieldKey: string): string =>
+    `pkg_${packageId}__${fieldKey}`;
+
+  const packageOthersKey = (packageId: number, fieldKey: string): string =>
+    `pkg_${packageId}__${fieldKey}__others`;
+
+  const getSelectedPackageQuestionFields = (): Array<{
+    packageId: number;
+    packageTitle: string;
+    field: PackageThemeMetaField;
+  }> => {
+    return selectedItems
+      .filter((item): item is Package => item.type === "package")
+      .flatMap((pkg) => {
+        const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];
+        return fields.map((field) => ({
+          packageId: Number(pkg.id),
+          packageTitle: pkg.title,
+          field,
+        }));
+      });
+  };
+
+  const onQuestionChange = (
+    key: string,
+    value: string | number | string[],
+  ) => {
+    setPackageQuestionAnswers((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const onOthersChange = (key: string, value: string) => {
+    setPackageOthersText((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const buildPackageQuestionPayload = (): Array<{
+    package_id: number;
+    field_key: string;
+    field_label: string;
+    field_type: PackageThemeMetaField["type"];
+    value: string | number | string[];
+    others_text?: string;
+  }> => {
+    const payload: Array<{
+      package_id: number;
+      field_key: string;
+      field_label: string;
+      field_type: PackageThemeMetaField["type"];
+      value: string | number | string[];
+      others_text?: string;
+    }> = [];
+
+    getSelectedPackageQuestionFields().forEach((entry) => {
+      const answerKey = packageFieldKey(entry.packageId, entry.field.key);
+      const value = packageQuestionAnswers[answerKey];
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0);
+      if (isEmpty) return;
+
+      const normalized: {
+        package_id: number;
+        field_key: string;
+        field_label: string;
+        field_type: PackageThemeMetaField["type"];
+        value: string | number | string[];
+        others_text?: string;
+      } = {
+        package_id: entry.packageId,
+        field_key: entry.field.key,
+        field_label: entry.field.label,
+        field_type: entry.field.type,
+        value,
+      };
+
+      const supportsOthers = !!entry.field.allow_others && ["radio", "checkbox", "select"].includes(entry.field.type);
+      const othersSelected =
+        supportsOthers &&
+        ((Array.isArray(value) && value.includes("Others")) || value === "Others");
+      if (othersSelected) {
+        const othersValue = String(
+          packageOthersText[packageOthersKey(entry.packageId, entry.field.key)] || "",
+        ).trim();
+        if (othersValue) {
+          normalized.others_text = othersValue;
+        }
+      }
+      payload.push(normalized);
+    });
+
+    return payload;
   };
 
   // Check cart on component mount
@@ -296,6 +452,177 @@ export function Step5Payment() {
         <h3>Final Review</h3>
 
         <div className="sb-summary-grid">
+          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
+            <label style={{ display: "block", width: "100%" }}>
+              Full Name <span style={{ color: "#d63638" }}>*</span>
+              <input
+                className="sb-input"
+                type="text"
+                value={String(customerInfo.name || "")}
+                onChange={(e) => setCustomerField("name", e.target.value)}
+                style={{ width: "100%", marginTop: 6 }}
+              />
+              {fieldErrors.customer_name && <span className="sb-error">{fieldErrors.customer_name}</span>}
+            </label>
+          </div>
+          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
+            <label style={{ display: "block", width: "100%" }}>
+              Email Address <span style={{ color: "#d63638" }}>*</span>
+              <input
+                className="sb-input"
+                type="email"
+                value={String(customerInfo.email || "")}
+                onChange={(e) => setCustomerField("email", e.target.value)}
+                style={{ width: "100%", marginTop: 6 }}
+              />
+              {fieldErrors.customer_email && <span className="sb-error">{fieldErrors.customer_email}</span>}
+            </label>
+          </div>
+          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
+            <label style={{ display: "block", width: "100%" }}>
+              Phone
+              <input
+                className="sb-input"
+                type="text"
+                value={String(customerInfo.phone || "")}
+                onChange={(e) => setCustomerField("phone", e.target.value)}
+                style={{ width: "100%", marginTop: 6 }}
+              />
+            </label>
+          </div>
+          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
+            <label style={{ display: "block", width: "100%" }}>
+              Notes
+              <textarea
+                className="sb-input"
+                value={String(customerInfo.notes || "")}
+                onChange={(e) => setCustomerField("notes", e.target.value)}
+                style={{ width: "100%", marginTop: 6, minHeight: 90 }}
+              />
+            </label>
+          </div>
+
+          {getSelectedPackageQuestionFields().map((entry) => {
+            const answerKey = packageFieldKey(entry.packageId, entry.field.key);
+            const othersKey = packageOthersKey(entry.packageId, entry.field.key);
+            const value = packageQuestionAnswers[answerKey];
+            const fieldType = entry.field.type;
+            const options = Array.isArray(entry.field.options) ? entry.field.options : [];
+            const showChoice = ["radio", "checkbox", "select"].includes(fieldType);
+            const othersEnabled = !!entry.field.allow_others && showChoice;
+            const othersSelected =
+              othersEnabled &&
+              ((Array.isArray(value) && value.includes("Others")) || value === "Others");
+
+            return (
+              <div key={`${entry.packageId}-${entry.field.key}`} className="sb-summary-row" style={{ gridColumn: "1 / -1", display: "block" }}>
+                <label style={{ display: "block", marginBottom: 6 }}>
+                  {entry.field.label} {entry.field.required ? <span style={{ color: "#d63638" }}>*</span> : null}
+                  <span style={{ marginLeft: 8, color: "#666", fontSize: 12 }}>
+                    ({entry.packageTitle})
+                  </span>
+                </label>
+                {fieldType === "text" && (
+                  <input className="sb-input" type="text" value={String(value || "")} onChange={(e) => onQuestionChange(answerKey, e.target.value)} />
+                )}
+                {fieldType === "textarea" && (
+                  <textarea className="sb-input" value={String(value || "")} onChange={(e) => onQuestionChange(answerKey, e.target.value)} style={{ minHeight: 90 }} />
+                )}
+                {fieldType === "number" && (
+                  <input className="sb-input" type="number" value={String(value || "")} onChange={(e) => onQuestionChange(answerKey, e.target.value)} />
+                )}
+                {fieldType === "select" && (
+                  <select className="sb-input" value={String(value || "")} onChange={(e) => onQuestionChange(answerKey, e.target.value)}>
+                    <option value="">Select an option</option>
+                    {options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                    {othersEnabled && <option value="Others">Others</option>}
+                  </select>
+                )}
+                {fieldType === "radio" && (
+                  <div>
+                    {options.map((opt) => (
+                      <label key={opt} style={{ display: "block", marginBottom: 6 }}>
+                        <input
+                          type="radio"
+                          name={answerKey}
+                          checked={value === opt}
+                          onChange={() => onQuestionChange(answerKey, opt)}
+                        />{" "}
+                        {opt}
+                      </label>
+                    ))}
+                    {othersEnabled && (
+                      <label style={{ display: "block", marginBottom: 6 }}>
+                        <input
+                          type="radio"
+                          name={answerKey}
+                          checked={value === "Others"}
+                          onChange={() => onQuestionChange(answerKey, "Others")}
+                        />{" "}
+                        Others
+                      </label>
+                    )}
+                  </div>
+                )}
+                {fieldType === "checkbox" && (
+                  <div>
+                    {options.map((opt) => {
+                      const arr = Array.isArray(value) ? value : [];
+                      const checked = arr.includes(opt);
+                      return (
+                        <label key={opt} style={{ display: "block", marginBottom: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const current = Array.isArray(value) ? value : [];
+                              const next = e.target.checked
+                                ? [...current, opt]
+                                : current.filter((v) => v !== opt);
+                              onQuestionChange(answerKey, next);
+                            }}
+                          />{" "}
+                          {opt}
+                        </label>
+                      );
+                    })}
+                    {othersEnabled && (
+                      <label style={{ display: "block", marginBottom: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(value) ? value.includes("Others") : false}
+                          onChange={(e) => {
+                            const current = Array.isArray(value) ? value : [];
+                            const next = e.target.checked
+                              ? [...current, "Others"]
+                              : current.filter((v) => v !== "Others");
+                            onQuestionChange(answerKey, next);
+                          }}
+                        />{" "}
+                        Others
+                      </label>
+                    )}
+                  </div>
+                )}
+                {othersSelected && (
+                  <div style={{ marginTop: 8 }}>
+                    <label style={{ display: "block", marginBottom: 4 }}>Please specify</label>
+                    <textarea
+                      className="sb-input"
+                      value={String(packageOthersText[othersKey] || "")}
+                      onChange={(e) => onOthersChange(othersKey, e.target.value)}
+                      style={{ minHeight: 90 }}
+                    />
+                    {fieldErrors[othersKey] && <span className="sb-error">{fieldErrors[othersKey]}</span>}
+                  </div>
+                )}
+                {fieldErrors[answerKey] && <span className="sb-error">{fieldErrors[answerKey]}</span>}
+              </div>
+            );
+          })}
+
           <div className="sb-summary-row">
             <span>Space</span>
             <span>{getSpaceSummaryLabel()}</span>

@@ -7,6 +7,7 @@ import type {
   PricingResponse,
   SelectedExtra,
   Space,
+  PackageThemeMetaField,
 } from "@/types";
 
 const BASE = () => window.sbConfig.apiBase;
@@ -132,6 +133,14 @@ export const createBooking = (payload: {
   recaptcha_token?: string;
   extras?: SelectedExtra[];
   price_breakdown?: PriceBreakdownItem[];
+  package_question_answers?: Array<{
+    package_id: number;
+    field_key: string;
+    field_label: string;
+    field_type: PackageThemeMetaField["type"];
+    value: string | number | string[];
+    others_text?: string;
+  }>;
 }) =>
   apiFetch<BookingCreateResponse>("/bookings", {
     method: "POST",

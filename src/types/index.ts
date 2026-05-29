@@ -53,6 +53,16 @@ export interface Package {
   extra_ids: number[];
   space_ids?: number[]; // Multi-spaces for packages
   physicalSpaceIds?: number[]; // Cached footprint
+  theme_meta_fields?: PackageThemeMetaField[];
+}
+
+export interface PackageThemeMetaField {
+  label: string;
+  key: string;
+  type: "text" | "textarea" | "number" | "radio" | "checkbox" | "select";
+  required?: boolean;
+  allow_others?: boolean;
+  options?: string[];
 }
 
 export interface Extra {

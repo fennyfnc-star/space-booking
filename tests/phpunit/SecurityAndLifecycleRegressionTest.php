@@ -64,5 +64,27 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('sb_lookup_token_ttl_minutes', $contents, 'Lookup token TTL setting is missing.');
         $this->assertStringContainsString('lookup_access_granted', $contents, 'Lookup access audit event is missing.');
     }
-}
 
+    public function test_package_meta_builder_supports_repeater_and_others_flag(): void
+    {
+        $file = $this->pluginRoot . '/includes/Admin/PackageMetaBox.php';
+        $this->assertFileExists($file);
+        $contents = (string) file_get_contents($file);
+
+        $this->assertStringContainsString('_sb_package_theme_meta_fields', $contents);
+        $this->assertStringContainsString('ALLOWED_ANSWER_TYPES', $contents, 'Answer type allow-list should exist.');
+        $this->assertStringContainsString('Allow "Others" option', $contents, 'Admin builder should support Others toggle.');
+        $this->assertStringContainsString('sanitize_theme_meta_fields', $contents, 'Theme meta fields should be sanitized on save.');
+    }
+
+    public function test_package_question_answers_are_persisted_and_visible_in_admin_booking_edit(): void
+    {
+        $bookingController = (string) file_get_contents($this->pluginRoot . '/includes/Controllers/BookingController.php');
+        $this->assertStringContainsString('package_question_answers', $bookingController);
+        $this->assertStringContainsString('_sb_package_question_answers', $bookingController);
+
+        $bookingEditTemplate = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
+        $this->assertStringContainsString('Package Answers', $bookingEditTemplate);
+        $this->assertStringContainsString('_sb_package_question_answers', $bookingEditTemplate);
+    }
+}

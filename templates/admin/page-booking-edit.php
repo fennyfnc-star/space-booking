@@ -144,6 +144,14 @@ $customer_email = trim((string) ($booking['customer_email'] ?? ''));
 $customer_phone = trim((string) ($booking['customer_phone'] ?? ''));
 $customer_notes = trim((string) ($booking['notes'] ?? ''));
 $marketing_source = trim((string) ($repo->get_meta($booking_id, '_sb_marketing_source') ?? ''));
+$package_question_answers_json = $repo->get_meta($booking_id, '_sb_package_question_answers');
+$package_question_answers = [];
+if (is_string($package_question_answers_json) && $package_question_answers_json !== '') {
+    $decoded_answers = json_decode($package_question_answers_json, true);
+    if (is_array($decoded_answers)) {
+        $package_question_answers = $decoded_answers;
+    }
+}
 
 if ($linked_order) {
     $order_name = trim((string) $linked_order->get_formatted_billing_full_name());
@@ -507,6 +515,34 @@ $status_color = [
             <?php endif; ?>
             <?php if ($marketing_source !== ''): ?>
             <div><strong>📈 How did you hear about us?</strong> <?php echo esc_html($marketing_source); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($package_question_answers)): ?>
+            <div style="grid-column: 1 / -1;">
+                <strong>Package Answers:</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($package_question_answers as $answer): ?>
+                    <?php
+                    $field_label = sanitize_text_field((string) ($answer['field_label'] ?? 'Question'));
+                    $value = $answer['value'] ?? '';
+                    $others_text = sanitize_textarea_field((string) ($answer['others_text'] ?? ''));
+                    if (is_array($value)) {
+                        $value_text = implode(', ', array_map('sanitize_text_field', $value));
+                    } else {
+                        $value_text = sanitize_text_field((string) $value);
+                    }
+                    ?>
+                    <li class="sb-extra-item" style="display:block;">
+                        <div><strong><?php echo esc_html($field_label); ?></strong></div>
+                        <div><?php echo esc_html($value_text !== '' ? $value_text : 'N/A'); ?></div>
+                        <?php if ($others_text !== ''): ?>
+                        <div style="margin-top:4px;color:#50575e;">
+                            <em>Others explanation:</em> <?php echo esc_html($others_text); ?>
+                        </div>
+                        <?php endif; ?>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
             <?php endif; ?>
             <?php if ($linked_order): ?>
             <div style="grid-column: 1 / -1;">
