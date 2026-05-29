@@ -86,5 +86,7 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $bookingEditTemplate = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
         $this->assertStringContainsString('Package Answers', $bookingEditTemplate);
         $this->assertStringContainsString('_sb_package_question_answers', $bookingEditTemplate);
+        $this->assertStringContainsString('Booking Details', $bookingEditTemplate, 'Primary booking details block should exist.');
+        $this->assertStringContainsString('$package_answer_rows', $bookingEditTemplate, 'Package answers should be normalized once for primary details rendering.');
     }
 }

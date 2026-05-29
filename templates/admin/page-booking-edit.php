@@ -152,6 +152,33 @@ if (is_string($package_question_answers_json) && $package_question_answers_json 
         $package_question_answers = $decoded_answers;
     }
 }
+$package_answer_rows = [];
+if (!empty($package_question_answers)) {
+    foreach ($package_question_answers as $answer) {
+        if (!is_array($answer)) {
+            continue;
+        }
+        $field_label = sanitize_text_field((string) ($answer['field_label'] ?? 'Question'));
+        $value = $answer['value'] ?? '';
+        $others_text = sanitize_textarea_field((string) ($answer['others_text'] ?? ''));
+
+        if (is_array($value)) {
+            $value_text = implode(', ', array_map('sanitize_text_field', $value));
+        } else {
+            $value_text = sanitize_text_field((string) $value);
+        }
+
+        if ($field_label === '' || $value_text === '') {
+            continue;
+        }
+
+        $package_answer_rows[] = [
+            'label' => $field_label,
+            'value' => $value_text,
+            'others_text' => $others_text,
+        ];
+    }
+}
 
 if ($linked_order) {
     $order_name = trim((string) $linked_order->get_formatted_billing_full_name());
@@ -469,6 +496,24 @@ $status_color = [
                 </ul>
             </div>
             <?php endif; ?>
+            <?php if (!empty($package_answer_rows)): ?>
+            <div style="grid-column: 1 / -1;">
+                <strong>Package Answers:</strong>
+                <ul class="sb-extras-list" style="margin-top:8px;">
+                    <?php foreach ($package_answer_rows as $row): ?>
+                    <li class="sb-extra-item" style="display:block;">
+                        <div><strong><?php echo esc_html($row['label']); ?></strong></div>
+                        <div><?php echo esc_html($row['value']); ?></div>
+                        <?php if ($row['others_text'] !== ''): ?>
+                        <div style="margin-top:4px;color:#50575e;">
+                            <em>Others explanation:</em> <?php echo esc_html($row['others_text']); ?>
+                        </div>
+                        <?php endif; ?>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php endif; ?>
 
             <div><strong>Date:</strong> <?php echo esc_html($booking['booking_date']); ?></div>
             <div><strong>Time:</strong>
@@ -515,34 +560,6 @@ $status_color = [
             <?php endif; ?>
             <?php if ($marketing_source !== ''): ?>
             <div><strong>📈 How did you hear about us?</strong> <?php echo esc_html($marketing_source); ?></div>
-            <?php endif; ?>
-            <?php if (!empty($package_question_answers)): ?>
-            <div style="grid-column: 1 / -1;">
-                <strong>Package Answers:</strong>
-                <ul class="sb-extras-list" style="margin-top:8px;">
-                    <?php foreach ($package_question_answers as $answer): ?>
-                    <?php
-                    $field_label = sanitize_text_field((string) ($answer['field_label'] ?? 'Question'));
-                    $value = $answer['value'] ?? '';
-                    $others_text = sanitize_textarea_field((string) ($answer['others_text'] ?? ''));
-                    if (is_array($value)) {
-                        $value_text = implode(', ', array_map('sanitize_text_field', $value));
-                    } else {
-                        $value_text = sanitize_text_field((string) $value);
-                    }
-                    ?>
-                    <li class="sb-extra-item" style="display:block;">
-                        <div><strong><?php echo esc_html($field_label); ?></strong></div>
-                        <div><?php echo esc_html($value_text !== '' ? $value_text : 'N/A'); ?></div>
-                        <?php if ($others_text !== ''): ?>
-                        <div style="margin-top:4px;color:#50575e;">
-                            <em>Others explanation:</em> <?php echo esc_html($others_text); ?>
-                        </div>
-                        <?php endif; ?>
-                    </li>
-                    <?php endforeach; ?>
-                </ul>
-            </div>
             <?php endif; ?>
             <?php if ($linked_order): ?>
             <div style="grid-column: 1 / -1;">
