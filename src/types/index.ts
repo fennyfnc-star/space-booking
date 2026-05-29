@@ -168,6 +168,8 @@ declare module "@/utils/api" {
     customer_phone?: string;
     notes?: string;
     marketing_source?: string;
+    website_url?: string;
+    form_started_at?: number;
     extras?: SelectedExtra[];
   }
 }

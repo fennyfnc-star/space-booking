@@ -127,6 +127,8 @@ export const createBooking = (payload: {
   customer_email: string;
   customer_phone?: string;
   notes?: string;
+  website_url?: string;
+  form_started_at?: number;
   extras?: SelectedExtra[];
   price_breakdown?: PriceBreakdownItem[];
 }) =>

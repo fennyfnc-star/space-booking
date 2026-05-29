@@ -3,6 +3,7 @@
 namespace SpaceBooking\Controllers;
 
 use SpaceBooking\Services\BookingRepository;
+use SpaceBooking\Services\BookingSpamGuard;
 use SpaceBooking\Services\InventoryService;
 use SpaceBooking\Services\PricingService;
 use SpaceBooking\Services\StripeService;
@@ -20,6 +21,7 @@ final class BookingController extends WP_REST_Controller
 	protected $rest_base = 'bookings';
 
 	private BookingRepository $repo;
+	private BookingSpamGuard $spam_guard;
 	private InventoryService $inventory;
 	private PricingService $pricing;
 	private \SpaceBooking\Services\WooCommerceService $wc;
@@ -27,6 +29,7 @@ final class BookingController extends WP_REST_Controller
 	public function __construct()
 	{
 		$this->repo = new BookingRepository();
+		$this->spam_guard = new BookingSpamGuard();
 		$this->inventory = new InventoryService();
 		$this->pricing = new PricingService();
 		$this->wc = new \SpaceBooking\Services\WooCommerceService();
@@ -80,12 +83,26 @@ final class BookingController extends WP_REST_Controller
 	public function create_booking(WP_REST_Request $request): WP_REST_Response
 	{
 		// NEW SCHEMA: Use arrays instead of singular IDs
-		$space_ids = array_map('intval', (array) $request->get_param('space_ids'));
-		$package_ids = array_map('intval', (array) $request->get_param('package_ids'));
+		$space_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('space_ids'))));
+		$package_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('package_ids'))));
 		$date = (string) $request->get_param('date');
 		$start_time = (string) $request->get_param('start_time');
 		$end_time = (string) $request->get_param('end_time');
-		$extras = (array) ($request->get_param('extras') ?? []);
+		$extras_input = (array) ($request->get_param('extras') ?? []);
+		$extras = array_values(array_filter(array_map(static function ($extra): ?array {
+			if (!is_array($extra)) {
+				return null;
+			}
+			$extra_id = absint($extra['extra_id'] ?? 0);
+			$quantity = max(1, absint($extra['quantity'] ?? 1));
+			if ($extra_id <= 0) {
+				return null;
+			}
+			return [
+				'extra_id' => $extra_id,
+				'quantity' => $quantity,
+			];
+		}, $extras_input)));
 
 		// DEBUG: Trace received extras
 		error_log('SB_DEBUG BookingController: Received extras from request: ' . json_encode($extras));
@@ -96,7 +113,63 @@ final class BookingController extends WP_REST_Controller
 		$notes = sanitize_textarea_field($request->get_param('notes') ?? '');
 		$marketing_source = sanitize_text_field($request->get_param('marketing_source') ?? '');
 		$frontend_breakdown = $request->get_param('price_breakdown') ?: [];
-		$selected_item_ids = array_map('intval', (array) $request->get_param('selected_item_ids'));
+		$selected_item_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('selected_item_ids'))));
+		$honeypot = sanitize_text_field((string) ($request->get_param('website_url') ?? ''));
+		$form_started_at = (int) $request->get_param('form_started_at');
+		$client_nonce = $request->get_header('X-WP-Nonce');
+		$request_ip = $this->spam_guard->get_request_ip();
+
+		if (!$this->spam_guard->validate_nonce($client_nonce)) {
+			$this->spam_guard->log_suspicious_attempt('invalid_nonce', [
+				'email' => $email,
+				'path' => '/bookings',
+			]);
+			return new WP_REST_Response(['message' => 'Invalid submission token. Refresh and try again.'], 403);
+		}
+
+		if ($this->spam_guard->is_honeypot_triggered($honeypot)) {
+			$this->spam_guard->log_suspicious_attempt('honeypot_triggered', [
+				'email' => $email,
+				'honeypot' => $honeypot,
+			]);
+			return new WP_REST_Response(['message' => 'Submission rejected.'], 422);
+		}
+
+		if ($this->spam_guard->is_submit_too_fast($form_started_at)) {
+			$this->spam_guard->log_suspicious_attempt('submit_too_fast', [
+				'email' => $email,
+				'form_started_at' => $form_started_at,
+			]);
+			return new WP_REST_Response(['message' => 'Please wait a moment and submit again.'], 429);
+		}
+
+		if ($this->spam_guard->is_rate_limited($request_ip, $email)) {
+			$this->spam_guard->log_suspicious_attempt('rate_limited', [
+				'email' => $email,
+			]);
+			return new WP_REST_Response(['message' => 'Too many attempts. Please try again later.'], 429);
+		}
+
+		$this->spam_guard->increment_rate_counters($request_ip, $email);
+
+		if ($name === '' || !is_email($email)) {
+			$this->spam_guard->log_suspicious_attempt('invalid_customer_fields', [
+				'email' => $email,
+				'name_empty' => $name === '',
+			]);
+			return new WP_REST_Response(['message' => 'Valid customer name and email are required.'], 422);
+		}
+
+		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+			return new WP_REST_Response(['message' => 'Invalid booking date format.'], 422);
+		}
+		if (!preg_match('/^\d{2}:\d{2}$/', $start_time) || !preg_match('/^\d{2}:\d{2}$/', $end_time)) {
+			return new WP_REST_Response(['message' => 'Invalid booking time format.'], 422);
+		}
+		if ($end_time <= $start_time) {
+			return new WP_REST_Response(['message' => 'End time must be later than start time.'], 422);
+		}
+
 		if (empty($selected_item_ids)) {
 			return new WP_REST_Response(['message' => 'Missing selected_item_ids.'], 422);
 		}
@@ -104,6 +177,16 @@ final class BookingController extends WP_REST_Controller
 		// NEW SCHEMA: Validate that either space_ids OR package_ids is provided
 		if (empty($space_ids) && empty($package_ids)) {
 			return new WP_REST_Response(['message' => 'Either space_ids or package_ids must be provided.'], 422);
+		}
+
+		if ($this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
+			$this->spam_guard->log_suspicious_attempt('duplicate_booking_window', [
+				'email' => $email,
+				'date' => $date,
+				'start_time' => $start_time,
+				'end_time' => $end_time,
+			]);
+			return new WP_REST_Response(['message' => 'Duplicate booking detected. Please wait before submitting again.'], 409);
 		}
 
 		// Build data for booking creation
@@ -478,6 +561,8 @@ final class BookingController extends WP_REST_Controller
 			'customer_phone' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'marketing_source' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
 			'notes' => ['required' => false, 'sanitize_callback' => 'sanitize_textarea_field'],
+			'website_url' => ['required' => false, 'sanitize_callback' => 'sanitize_text_field'],
+			'form_started_at' => ['required' => false, 'sanitize_callback' => 'absint'],
 			'extras' => ['required' => false, 'default' => []],
 			'price_breakdown' => ['required' => false, 'default' => []],
 			'selected_item_ids' => [

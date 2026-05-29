@@ -27,6 +27,7 @@ export function Step5Payment() {
   const [loading, setLoading] = useState(false);
   const [checkingCart, setCheckingCart] = useState(true);
   const [error, setError] = useState("");
+  const [formStartedAt] = useState<number>(() => Math.floor(Date.now() / 1000));
 
   // Get first space ID from lockedResourceIds array
   const getFirstSpaceId = (): number => {
@@ -122,6 +123,8 @@ export function Step5Payment() {
         customer_email: String(customerInfo.email || ""),
         customer_phone: String(customerInfo.phone || ""),
         notes: String(customerInfo.notes || ""),
+        website_url: "",
+        form_started_at: formStartedAt,
         extras: selectedExtras,
         price_breakdown: priceBreakdown,
       });
@@ -289,6 +292,16 @@ export function Step5Payment() {
         </div>
 
         {error && <div className="sb-error">{error}</div>}
+        <input
+          type="text"
+          name="website_url"
+          value=""
+          onChange={() => {}}
+          autoComplete="off"
+          tabIndex={-1}
+          aria-hidden="true"
+          style={{ position: "absolute", left: "-9999px", opacity: 0, pointerEvents: "none" }}
+        />
 
         <div className="sb-step__actions">
           <button className="sb-btn sb-btn--ghost" onClick={prevStep}>
