@@ -136,6 +136,35 @@ export function Step5Payment() {
     return payload;
   };
 
+  const packageQuestionReviewRows = (() => {
+    const rows: Array<{ label: string; value: string }> = [];
+    const packageItems = selectedItems.filter(
+      (item): item is SelectedPackageItem => item.type === "package",
+    );
+    packageItems.forEach((pkg) => {
+      const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];
+      fields.forEach((field) => {
+        const answerKey = `pkg_${pkg.id}__${field.key}`;
+        const answer = packageQuestionAnswers[answerKey];
+        if (!answer) return;
+        const rawValue = answer.value;
+        const isEmpty =
+          rawValue === undefined ||
+          rawValue === null ||
+          rawValue === "" ||
+          (Array.isArray(rawValue) && rawValue.length === 0);
+        if (isEmpty) return;
+        const renderedValue = Array.isArray(rawValue) ? rawValue.join(", ") : String(rawValue);
+        const suffix = answer.others_text ? ` | Others: ${String(answer.others_text)}` : "";
+        rows.push({
+          label: `${field.label} (${pkg.title})`,
+          value: `${renderedValue}${suffix}`,
+        });
+      });
+    });
+    return rows;
+  })();
+
   const handlePayment = async () => {
     if (checkoutUrl) {
       window.location.href = checkoutUrl;
@@ -311,6 +340,20 @@ export function Step5Payment() {
           <div className="sb-summary-row"><span>Date</span><span>{selectedDate}</span></div>
           <div className="sb-summary-row"><span>Time</span><span>{formatTimeTo12Hour(selectedStartTime)} – {formatTimeTo12Hour(selectedEndTime)}</span></div>
         </div>
+
+        {packageQuestionReviewRows.length > 0 && (
+          <>
+            <h4>Package Answers</h4>
+            <ul className="sb-breakdown">
+              {packageQuestionReviewRows.map((row, i) => (
+                <li key={`${row.label}-${i}`} className="sb-breakdown__item">
+                  <span>{row.label}</span>
+                  <span>{row.value}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         <h4>Price Breakdown</h4>
         <ul className="sb-breakdown">

@@ -296,8 +296,9 @@ export function Step1Selection() {
         Choose Spaces or Packages (Multi-Select)
       </h2>
       <p className="sb-step__subtitle">
-        {/* Selected: {selectedItems.length} items | Locked resources:{" "}
-        {lockedResourceIds.length} */}
+        You can select multiple spaces or multiple packages. You cannot select a
+        package and one of its included spaces at the same time, and conflicting
+        items will be locked automatically. Click selected cards again to unselect.
       </p>
 
       {/* Tabs */}

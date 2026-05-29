@@ -67,6 +67,7 @@ interface BookingData {
   _extras_details?: ExtraDetail[];
   _price_breakdown?: PriceBreakdownItem[];
   _package_inclusions?: Array<{ type: string; title: string; label?: string }>;
+  _meta_data?: Record<string, string>;
   notes?: string;
 }
 
@@ -324,6 +325,44 @@ export function Step6Confirmation() {
     return [...regularExtras, ...packageExtras];
   };
 
+  const getPackageQuestionRows = (): Array<{ label: string; value: string }> => {
+    const raw = bookingData._meta_data?._sb_package_question_answers;
+    if (!raw) return [];
+
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(decoded)) return [];
+
+    return decoded
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const item = entry as {
+          field_label?: string;
+          value?: string | number | string[];
+          others_text?: string;
+        };
+        const label = String(item.field_label || "").trim();
+        const value = item.value;
+        if (!label) return null;
+        if (value === undefined || value === null) return null;
+        if (typeof value === "string" && value.trim() === "") return null;
+        if (Array.isArray(value) && value.length === 0) return null;
+        const valueText = Array.isArray(value) ? value.join(", ") : String(value);
+        const others = String(item.others_text || "").trim();
+        return {
+          label,
+          value: others ? `${valueText} | Others: ${others}` : valueText,
+        };
+      })
+      .filter((row): row is { label: string; value: string } => !!row);
+  };
+
+  const packageQuestionRows = getPackageQuestionRows();
+
   return (
     <div className="sb-step sb-step-6">
       {/* Success banner */}
@@ -424,6 +463,20 @@ export function Step6Confirmation() {
               <tr>
                 <th>Phone</th>
                 <td>{bookingData.customer_phone}</td>
+              </tr>
+            )}
+            {packageQuestionRows.length > 0 && (
+              <tr>
+                <th>Package Answers</th>
+                <td>
+                  <ul className="sb-confirm-extras">
+                    {packageQuestionRows.map((row, index) => (
+                      <li key={`${row.label}-${index}`}>
+                        <strong>{row.label}:</strong> {row.value}
+                      </li>
+                    ))}
+                  </ul>
+                </td>
               </tr>
             )}
             <tr>
