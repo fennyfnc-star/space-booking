@@ -811,6 +811,66 @@ class BookingRepository
 		return $deleted;
 	}
 
+	public function get_customer_bookings_by_email(string $email, int $limit = 50): array
+	{
+		global $wpdb;
+
+		$email = strtolower(sanitize_email($email));
+		if (!is_email($email)) {
+			return [];
+		}
+
+		$limit = max(1, min(100, $limit));
+		$status_allowlist = ['pending', 'in_review', 'confirmed', 'cancelled', 'refunded'];
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, space_id, booking_date, start_time, end_time, total_price, status
+				 FROM {$wpdb->prefix}sb_bookings
+				 WHERE LOWER(customer_email) = %s
+				 AND status IN ('pending','in_review','confirmed','cancelled','refunded')
+				 ORDER BY booking_date DESC, start_time DESC
+				 LIMIT %d",
+				$email,
+				$limit
+			),
+			ARRAY_A
+		) ?: [];
+
+		$results = [];
+		foreach ($rows as $row) {
+			$status = (string) ($row['status'] ?? '');
+			if (!in_array($status, $status_allowlist, true)) {
+				continue;
+			}
+
+			$space_id = (int) ($row['space_id'] ?? 0);
+			$thumbnail = '';
+			if ($space_id > 0 && has_post_thumbnail($space_id)) {
+				$thumbnail = (string) get_the_post_thumbnail_url($space_id, 'medium');
+			}
+
+			$results[] = [
+				'id' => (int) $row['id'],
+				'space_name' => $space_id > 0 ? get_the_title($space_id) : __('Unknown Space', 'space-booking'),
+				'booking_date' => sanitize_text_field((string) $row['booking_date']),
+				'start_time' => sanitize_text_field((string) $row['start_time']),
+				'end_time' => sanitize_text_field((string) $row['end_time']),
+				'total_price' => (float) $row['total_price'],
+				'status' => $status,
+				'thumbnail' => esc_url_raw($thumbnail),
+				'extras' => array_map(static function (array $extra): array {
+					return [
+						'extra_name' => sanitize_text_field((string) ($extra['title'] ?? 'Extra')),
+						'quantity' => (int) ($extra['quantity'] ?? 1),
+					];
+				}, $this->get_extras((int) $row['id'])),
+			];
+		}
+
+		return $results;
+	}
+
 	private function append_audit_log(int $booking_id, string $event, int $actor_user_id, array $context = []): void
 	{
 		$existing_json = $this->get_meta($booking_id, '_sb_audit_log');
