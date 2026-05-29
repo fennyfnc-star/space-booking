@@ -96,8 +96,19 @@ final class WooCommerceOrderActions
             $subject
         );
 
+        $repo = new BookingRepository();
+        $package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
+            (string) $repo->get_meta((int) $booking_id, '_sb_package_question_answers')
+        );
+        $package_answers_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html($package_answer_rows);
+        $primary_color = \SpaceBooking\Services\EmailTemplateHelper::PRIMARY_COLOR;
+
         // Build email content
-        $message = '<h2>Hello ' . esc_html($customer_name) . ',</h2>';
+        $message = '<div style="font-family:Arial,sans-serif;background:#f4f4f4;padding:24px;">';
+        $message .= '<div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;">';
+        $message .= '<div style="background:' . esc_attr($primary_color) . ';color:#fff;padding:18px 24px;"><h2 style="margin:0;">' . esc_html__('Booking Confirmed', 'space-booking') . '</h2></div>';
+        $message .= '<div style="padding:24px;color:#222;">';
+        $message .= '<h2>Hello ' . esc_html($customer_name) . ',</h2>';
         $message .= '<p>Your booking has been confirmed!</p>';
         $message .= '<h3>Booking Details</h3>';
         $message .= '<ul>';
@@ -106,10 +117,14 @@ final class WooCommerceOrderActions
         $message .= '<li><strong>Time:</strong> ' . esc_html($booking['start_time']) . ' - ' . esc_html($booking['end_time']) . '</li>';
         $message .= '<li><strong>Booking ID:</strong> ' . $booking_id . '</li>';
         $message .= '</ul>';
+        if ($package_answers_html !== '') {
+            $message .= $package_answers_html;
+        }
 
         // Add order total
         $message .= '<p><strong>Total Paid:</strong> ' . $order->get_formatted_order_total() . '</p>';
         $message .= '<p>Thank you for your booking!</p>';
+        $message .= '</div></div></div>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
 

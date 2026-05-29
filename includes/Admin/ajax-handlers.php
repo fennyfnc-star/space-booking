@@ -25,8 +25,8 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         return false;
     }
     
-    // Elementor-like style colors with safe defaults.
-    $primary_color = '#557da1';
+    // Email theme colors.
+    $primary_color = \SpaceBooking\Services\EmailTemplateHelper::PRIMARY_COLOR;
     $accent_color = '#e5e5e5';
 
     // Currency symbol for fallback rows.
@@ -266,6 +266,11 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         </div>';
     }
 
+    $package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
+        (string) ($meta_data['_sb_package_question_answers'] ?? '')
+    );
+    $package_answers_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html($package_answer_rows);
+
     $order_items_html = '';
     if ($order instanceof WC_Order) {
         foreach ($order->get_items() as $item_id => $item) {
@@ -328,6 +333,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
                 </div>
 
                 " . $package_inclusions_html . "
+                " . $package_answers_html . "
 
                 <h3 style='font-size: 15px; margin-bottom: 10px; color: #777;'>" . esc_html__('Extras', 'space-booking') . "</h3>
                 " . ($extras_list !== '' ? "<ul style='margin:0 0 20px;padding-left:20px;font-size:13px;'>" . $extras_list . "</ul>" : "<p style='margin:0 0 20px;font-size:13px;color:#666;'>" . esc_html__('None', 'space-booking') . "</p>") . "

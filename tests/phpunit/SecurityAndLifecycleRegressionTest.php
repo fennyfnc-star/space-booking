@@ -89,4 +89,24 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('Booking Details', $bookingEditTemplate, 'Primary booking details block should exist.');
         $this->assertStringContainsString('$package_answer_rows', $bookingEditTemplate, 'Package answers should be normalized once for primary details rendering.');
     }
+
+    public function test_booking_emails_include_package_answers_and_brand_color(): void
+    {
+        $helperFile = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailTemplateHelper.php');
+        $this->assertStringContainsString('PRIMARY_COLOR', $helperFile);
+        $this->assertStringContainsString('#7A48B0', $helperFile);
+        $this->assertStringContainsString('render_package_qa_html', $helperFile);
+
+        $emailService = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailService.php');
+        $this->assertStringContainsString('package_answer_rows', $emailService);
+        $this->assertStringContainsString('[package_question_answers]', $emailService);
+
+        $adminEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/notification-admin.php');
+        $this->assertStringContainsString('#7A48B0', $adminEmailTemplate);
+        $this->assertStringContainsString('package_answer_rows', $adminEmailTemplate);
+
+        $ajaxHandlers = (string) file_get_contents($this->pluginRoot . '/includes/Admin/ajax-handlers.php');
+        $this->assertStringContainsString('EmailTemplateHelper::PRIMARY_COLOR', $ajaxHandlers);
+        $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
+    }
 }

@@ -33,6 +33,10 @@ final class EmailService
 
 	private function send_customer_confirmation(array $booking): void
 	{
+		$repo = new BookingRepository();
+		$package_answer_rows = EmailTemplateHelper::package_question_rows_from_meta_string(
+			(string) $repo->get_meta((int) $booking['id'], '_sb_package_question_answers')
+		);
 		$subject = sprintf(
 			__('Booking Confirmed – %s on %s', 'space-booking'),
 			get_the_title((int) $booking['space_id']),
@@ -41,7 +45,8 @@ final class EmailService
 
 		$body = $this->render_template('emails/confirmation-customer.php', [
 			'booking' => $booking,
-			'extras' => (new BookingRepository())->get_extras((int) $booking['id']),
+			'extras' => $repo->get_extras((int) $booking['id']),
+			'package_answer_rows' => $package_answer_rows,
 		]);
 
 		$this->send(
@@ -53,6 +58,10 @@ final class EmailService
 
 	private function send_admin_notification(array $booking): void
 	{
+		$repo = new BookingRepository();
+		$package_answer_rows = EmailTemplateHelper::package_question_rows_from_meta_string(
+			(string) $repo->get_meta((int) $booking['id'], '_sb_package_question_answers')
+		);
 		$subject = sprintf(
 			__('[New Booking] %s – %s', 'space-booking'),
 			get_the_title((int) $booking['space_id']),
@@ -61,7 +70,8 @@ final class EmailService
 
 		$body = $this->render_template('emails/notification-admin.php', [
 			'booking' => $booking,
-			'extras' => (new BookingRepository())->get_extras((int) $booking['id']),
+			'extras' => $repo->get_extras((int) $booking['id']),
+			'package_answer_rows' => $package_answer_rows,
 		]);
 
 		$this->send($this->admin_email, $subject, $body);
@@ -164,6 +174,10 @@ final class EmailService
 				$inclusions_html .= '</ul>';
 			}
 		}
+		$package_answer_rows = EmailTemplateHelper::package_question_rows_from_meta_string(
+			(string) $repo->get_meta((int) $booking_id, '_sb_package_question_answers')
+		);
+		$package_answers_html = EmailTemplateHelper::render_package_qa_html($package_answer_rows);
 		
 		$body = str_replace(
 			[
@@ -173,7 +187,8 @@ final class EmailService
 				'[access_instructions]',
 				'[total_price]',
 				'[order_id]',
-				'[package_inclusions]'
+				'[package_inclusions]',
+				'[package_question_answers]'
 			],
 			[
 				esc_html($booking['customer_name']),
@@ -182,7 +197,8 @@ final class EmailService
 				esc_html(get_post_meta((int) $booking['space_id'], '_sb_access_instructions', true) ?: 'TBD'),
 				\SpaceBooking\Services\CurrencyService::format((float) $booking['total_price']),
 				esc_html($order_id),
-				$inclusions_html ?: '<em>No inclusions</em>'
+				$inclusions_html ?: '<em>No inclusions</em>',
+				$package_answers_html
 			],
 			$template
 		);
