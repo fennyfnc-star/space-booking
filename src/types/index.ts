@@ -246,7 +246,12 @@ export interface SelectedExtra {
 
 // ── Booking wizard step state ─────────────────────────────────────────────────
 
-export type BookingStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type BookingStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export interface PackageQuestionAnswerValue {
+  value: string | number | string[];
+  others_text?: string;
+}
 
 export interface CustomField {
   key: string;

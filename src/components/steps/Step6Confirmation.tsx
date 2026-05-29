@@ -204,20 +204,6 @@ export function Step6Confirmation() {
     return [];
   };
 
-  const getBookingPackageIds = (): number[] => {
-    if (Array.isArray(bookingData.package_ids) && bookingData.package_ids.length > 0) {
-      return bookingData.package_ids
-        .map((id) => Number(id))
-        .filter((id) => id > 0);
-    }
-
-    if (bookingData.package_id) {
-      return [Number(bookingData.package_id)];
-    }
-
-    return [];
-  };
-
   const getSpaceSummaryLabel = (): string => {
     const selectedSpaceItems = (bookingData._selected_items ?? []).filter(
       (item) => item.type === "sb_space",

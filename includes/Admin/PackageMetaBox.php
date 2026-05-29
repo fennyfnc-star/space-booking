@@ -105,6 +105,9 @@ final class PackageMetaBox
                     $field = is_array($field) ? $field : [];
                     $label = sanitize_text_field((string) ($field['label'] ?? ''));
                     $key = sanitize_key((string) ($field['key'] ?? ''));
+                    if ($key === '') {
+                        $key = 'package_answer_' . substr(md5((string) $post->ID . '|' . (string) $index . '|' . $label), 0, 10);
+                    }
                     $type = sanitize_text_field((string) ($field['type'] ?? 'text'));
                     $required = !empty($field['required']);
                     $allow_others = !empty($field['allow_others']);
@@ -116,10 +119,7 @@ final class PackageMetaBox
                                 <label><strong><?php esc_html_e('Question Label', 'space-booking'); ?></strong></label><br>
                                 <input type="text" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][label]" value="<?php echo esc_attr($label); ?>" class="regular-text" placeholder="e.g. Theme preference">
                             </p>
-                            <p style="margin:0;flex:1;min-width:180px;">
-                                <label><strong><?php esc_html_e('Field Key', 'space-booking'); ?></strong></label><br>
-                                <input type="text" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][key]" value="<?php echo esc_attr($key); ?>" class="regular-text" placeholder="e.g. theme_preference">
-                            </p>
+                            <input type="hidden" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][key]" value="<?php echo esc_attr($key); ?>">
                             <p style="margin:0;min-width:170px;">
                                 <label><strong><?php esc_html_e('Answer Type', 'space-booking'); ?></strong></label><br>
                                 <select class="sb-answer-type" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][type]">
@@ -169,10 +169,7 @@ final class PackageMetaBox
                                 <label><strong>Question Label</strong></label><br>
                                 <input type="text" name="sb_package_theme_meta_fields[${index}][label]" class="regular-text" placeholder="e.g. Theme preference">
                             </p>
-                            <p style="margin:0;flex:1;min-width:180px;">
-                                <label><strong>Field Key</strong></label><br>
-                                <input type="text" name="sb_package_theme_meta_fields[${index}][key]" class="regular-text" placeholder="e.g. theme_preference">
-                            </p>
+                            <input type="hidden" name="sb_package_theme_meta_fields[${index}][key]" value="">
                             <p style="margin:0;min-width:170px;">
                                 <label><strong>Answer Type</strong></label><br>
                                 <select class="sb-answer-type" name="sb_package_theme_meta_fields[${index}][type]">
@@ -317,8 +314,12 @@ final class PackageMetaBox
             $required = !empty($field['required']);
             $allow_others = !empty($field['allow_others']);
 
-            if ($label === '' || $key === '' || !in_array($type, self::ALLOWED_ANSWER_TYPES, true)) {
+            if ($label === '' || !in_array($type, self::ALLOWED_ANSWER_TYPES, true)) {
                 continue;
+            }
+
+            if ($key === '') {
+                $key = 'package_answer_' . substr(md5($label . '|' . wp_json_encode($field) . '|' . uniqid('', true)), 0, 10);
             }
 
             if (in_array($key, $used_keys, true)) {

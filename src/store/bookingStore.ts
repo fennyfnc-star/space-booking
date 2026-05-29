@@ -11,6 +11,7 @@ import type {
   SelectedExtra,
   Space,
   SelectionItem,
+  PackageQuestionAnswerValue,
 } from "../types";
 
 import { checkCartHasBooking, fetchResourceMap } from "../utils/api";
@@ -49,6 +50,7 @@ interface BookingState {
   availableExtras: Extra[];
   selectedExtras: SelectedExtra[];
   customerInfo: CustomerInfo;
+  packageQuestionAnswers: Record<string, PackageQuestionAnswerValue>;
   customerFields: CustomField[];
   checkoutUrl: string | null;
   bookingId: number | null;
@@ -77,6 +79,13 @@ interface BookingState {
   incrementExtra: (extra_id: number) => void;
   decrementExtra: (extra_id: number) => void;
   setCustomerField: (key: string, value: CustomerValue) => void;
+  setPackageQuestionAnswer: (
+    answerKey: string,
+    value: string | number | string[],
+    othersText?: string,
+  ) => void;
+  clearPackageQuestionAnswers: () => void;
+  hasPackageQuestionsStep: () => boolean;
   setCustomerFields: (fields: CustomField[]) => void;
   fetchCustomerFields: () => Promise<void>;
   validateCustomerInfo: () => boolean;
@@ -128,6 +137,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   availableExtras: [],
   selectedExtras: [],
   customerInfo: { ...DEFAULT_CUSTOMER },
+  packageQuestionAnswers: {},
   customerFields: [],
   checkoutUrl: null,
   bookingId: null,
@@ -142,15 +152,27 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setStep: (step: BookingStep) => set({ currentStep: step }),
   nextStep: () =>
     set((state) => {
-      let next = state.currentStep + 1;
-      return { currentStep: Math.min(next, 6) as BookingStep };
+      const hasPackageQuestions = get().hasPackageQuestionsStep();
+      let next: BookingStep = state.currentStep;
+      if (state.currentStep === 1) next = 2;
+      else if (state.currentStep === 2) next = 3;
+      else if (state.currentStep === 3) next = hasPackageQuestions ? 4 : 5;
+      else if (state.currentStep === 4) next = 5;
+      else if (state.currentStep === 5) next = 6;
+      else if (state.currentStep === 6) next = 7;
+      return { currentStep: next };
     }),
   prevStep: () =>
     set((state) => {
-      // Skip step 4 (Details) - go from step 5 (Terms) directly to step 3 (Add-ons)
-      let prev = state.currentStep - 1;
-      if (prev === 4) prev = 3;
-      return { currentStep: Math.max(prev, 1) as BookingStep };
+      const hasPackageQuestions = get().hasPackageQuestionsStep();
+      let prev: BookingStep = state.currentStep;
+      if (state.currentStep === 7) prev = 6;
+      else if (state.currentStep === 6) prev = 5;
+      else if (state.currentStep === 5) prev = hasPackageQuestions ? 4 : 3;
+      else if (state.currentStep === 4) prev = 3;
+      else if (state.currentStep === 3) prev = 2;
+      else if (state.currentStep === 2) prev = 1;
+      return { currentStep: prev };
     }),
 
   loadResourceMap: async () => {
@@ -668,6 +690,28 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
     set((state) => ({
       customerInfo: { ...state.customerInfo, [key]: value },
     })),
+  setPackageQuestionAnswer: (
+    answerKey: string,
+    value: string | number | string[],
+    othersText?: string,
+  ) =>
+    set((state) => ({
+      packageQuestionAnswers: {
+        ...state.packageQuestionAnswers,
+        [answerKey]: {
+          value,
+          ...(othersText !== undefined ? { others_text: othersText } : {}),
+        },
+      },
+    })),
+  clearPackageQuestionAnswers: () => set({ packageQuestionAnswers: {} }),
+  hasPackageQuestionsStep: () => {
+    const state = get();
+    return state.selectedItems.some((item) => {
+      if (item.type !== "package") return false;
+      return Array.isArray((item as Package).theme_meta_fields) && (item as Package).theme_meta_fields!.length > 0;
+    });
+  },
   setCustomerFields: (fields: CustomField[]) => set({ customerFields: fields }),
   fetchCustomerFields: async () => {
     try {
@@ -838,6 +882,7 @@ reset: () => {
       availableExtras: [],
       selectedExtras: [],
       customerInfo: { ...DEFAULT_CUSTOMER },
+      packageQuestionAnswers: {},
       customerFields: [],
       checkoutUrl: null,
       bookingId: null,
