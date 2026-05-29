@@ -40,6 +40,20 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertLessThan($checkoutPos, $captchaPos, 'reCAPTCHA must be verified before checkout/cart creation.');
     }
 
+    public function test_booking_controller_allows_submission_when_recaptcha_is_missing(): void
+    {
+        $controller = (string) file_get_contents($this->pluginRoot . '/includes/Controllers/BookingController.php');
+        $plugin = (string) file_get_contents($this->pluginRoot . '/includes/Plugin.php');
+        $paymentStep = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
+
+        $this->assertStringContainsString("empty(\$recaptcha_config['has_keys'])", $controller);
+        $this->assertStringContainsString('Booking protection is not configured. This booking was submitted without captcha verification.', $controller);
+        $this->assertStringContainsString('hasKeys', $plugin);
+        $this->assertStringContainsString('Bookings will still submit, but they are unprotected until keys are configured.', $plugin);
+        $this->assertStringContainsString('Booking is unprotected because WooCommerce reCAPTCHA is not configured.', $paymentStep);
+        $this->assertStringContainsString('recaptchaProtectionActive', $paymentStep);
+    }
+
     public function test_booking_repository_retains_trash_restore_and_permanent_delete_paths(): void
     {
         $file = $this->pluginRoot . '/includes/Services/BookingRepository.php';

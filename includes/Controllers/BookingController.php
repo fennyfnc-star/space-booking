@@ -194,18 +194,19 @@ final class BookingController extends WP_REST_Controller
 		}
 
 		$recaptcha_config = $this->recaptcha->get_config();
+		$recaptcha_warning = '';
 		if (empty($recaptcha_config['has_keys'])) {
 			$this->spam_guard->log_suspicious_attempt('recaptcha_keys_missing', ['email' => $email]);
-			return new WP_REST_Response(['message' => 'Booking protection is not configured. Please contact site admin.'], 503);
-		}
-
-		$captcha_verification = $this->recaptcha->verify_token($recaptcha_token, $request_ip, 'space_booking_submit');
-		if (empty($captcha_verification['success'])) {
-			$this->spam_guard->log_suspicious_attempt('recaptcha_verify_failed', [
-				'email' => $email,
-				'reason' => $captcha_verification['message'] ?? 'unknown',
-			]);
-			return new WP_REST_Response(['message' => 'Captcha verification failed. Please try again.'], 422);
+			$recaptcha_warning = 'Booking protection is not configured. This booking was submitted without captcha verification.';
+		} else {
+			$captcha_verification = $this->recaptcha->verify_token($recaptcha_token, $request_ip, 'space_booking_submit');
+			if (empty($captcha_verification['success'])) {
+				$this->spam_guard->log_suspicious_attempt('recaptcha_verify_failed', [
+					'email' => $email,
+					'reason' => $captcha_verification['message'] ?? 'unknown',
+				]);
+				return new WP_REST_Response(['message' => 'Captcha verification failed. Please try again.'], 422);
+			}
 		}
 
 		if ($this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
@@ -538,6 +539,10 @@ final class BookingController extends WP_REST_Controller
 			'price' => $price,
 			'cart_added_directly' => $cart_added,
 		];
+
+		if ($recaptcha_warning !== '') {
+			$response_data['warning'] = $recaptcha_warning;
+		}
 
 		// Include error info if WooCommerce had issues (but don't fail the request)
 		if ($wc_error) {

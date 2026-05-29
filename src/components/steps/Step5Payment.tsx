@@ -34,9 +34,12 @@ export function Step5Payment() {
   const recaptchaEnabled = !!recaptchaConfig?.enabled;
   const recaptchaVersion = recaptchaConfig?.version || "v3";
   const recaptchaSiteKey = recaptchaConfig?.siteKey || "";
+  const recaptchaConfigured = !!recaptchaConfig?.hasKeys && recaptchaSiteKey !== "";
+  const recaptchaWarning = recaptchaEnabled && !recaptchaConfigured;
+  const recaptchaProtectionActive = recaptchaEnabled && recaptchaConfigured;
 
   useEffect(() => {
-    if (!recaptchaEnabled || recaptchaVersion !== "v2" || !recaptchaSiteKey) return;
+    if (!recaptchaProtectionActive || recaptchaVersion !== "v2") return;
     const grecaptcha = window.grecaptcha;
     if (!grecaptcha || recaptchaWidgetId !== null) return;
     grecaptcha.ready(() => {
@@ -45,10 +48,10 @@ export function Step5Payment() {
       const widgetId = grecaptcha.render(container, { sitekey: recaptchaSiteKey });
       setRecaptchaWidgetId(widgetId);
     });
-  }, [recaptchaEnabled, recaptchaVersion, recaptchaSiteKey, recaptchaWidgetId]);
+  }, [recaptchaProtectionActive, recaptchaVersion, recaptchaSiteKey, recaptchaWidgetId]);
 
   const getRecaptchaToken = async (): Promise<string> => {
-    if (!recaptchaEnabled) return "";
+    if (!recaptchaProtectionActive) return "";
     if (!recaptchaSiteKey || !window.grecaptcha) {
       throw new Error("Captcha is not configured. Please contact admin.");
     }
@@ -366,7 +369,12 @@ export function Step5Payment() {
         </ul>
         <div className="sb-breakdown__total">Total: <strong>{window.sbConfig.symbol}{totalPrice.toFixed(2)}</strong></div>
         {error && <div className="sb-error">{error}</div>}
-        {recaptchaEnabled && recaptchaVersion === "v2" && (
+        {recaptchaWarning && (
+          <div className="sb-note sb-note--warning">
+            Booking is unprotected because WooCommerce reCAPTCHA is not configured. Your submission will still be accepted.
+          </div>
+        )}
+        {recaptchaProtectionActive && recaptchaVersion === "v2" && (
           <div style={{ margin: "12px 0" }}><div id="sb-recaptcha-v2"></div></div>
         )}
         <input type="text" name="website_url" value="" onChange={() => {}} autoComplete="off" tabIndex={-1} aria-hidden="true" style={{ position: "absolute", left: "-9999px", opacity: 0, pointerEvents: "none" }} />

@@ -148,6 +148,7 @@ final class Plugin
                         'enabled' => (bool) ($recaptcha_config['enabled'] ?? true),
                         'version' => (string) ($recaptcha_config['version'] ?? 'v3'),
                         'siteKey' => (string) ($recaptcha_config['site_key'] ?? ''),
+                        'hasKeys' => (bool) ($recaptcha_config['has_keys'] ?? false),
                     ],
                 ]
             );
@@ -314,7 +315,7 @@ final class Plugin
         }
 
         echo '<div class="notice notice-warning"><p>';
-        echo esc_html__('Space Booking: WooCommerce reCAPTCHA keys were not detected. Booking submissions are blocked until keys are configured.', 'space-booking');
+        echo esc_html__('Space Booking: WooCommerce reCAPTCHA keys were not detected. Bookings will still submit, but they are unprotected until keys are configured.', 'space-booking');
         echo '</p></div>';
     }
 

@@ -224,6 +224,7 @@ declare global {
         enabled: boolean;
         version: "v2" | "v3";
         siteKey: string;
+        hasKeys: boolean;
       };
     };
     grecaptcha?: {
