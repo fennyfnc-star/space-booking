@@ -109,4 +109,42 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('EmailTemplateHelper::PRIMARY_COLOR', $ajaxHandlers);
         $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
     }
+
+    public function test_package_questions_qa_checklist_contracts_across_booking_views(): void
+    {
+        $step5Payment = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
+        $step6Confirmation = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step6Confirmation.tsx');
+        $adminEdit = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
+        $emailHelper = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailTemplateHelper.php');
+        $adminEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/notification-admin.php');
+        $customerEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/confirmation-customer.php');
+
+        // 1) Booking without package: no package Q&A section should be shown.
+        $this->assertStringContainsString('packageQuestionReviewRows.length > 0', $step5Payment);
+        $this->assertStringContainsString('packageQuestionRows.length > 0', $step6Confirmation);
+        $this->assertStringContainsString('!empty($package_answer_rows)', $adminEdit);
+        $this->assertStringContainsString("if (empty(\$rows))", $emailHelper);
+
+        // 2) Package selected but no questions configured: no package Q&A section shown.
+        $this->assertStringContainsString('const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];', $step5Payment);
+        $this->assertStringContainsString('if (!answer) return;', $step5Payment);
+
+        // 3) Package with answers should render in checkout/confirmation/admin/emails.
+        $this->assertStringContainsString('Package Answers', $step5Payment);
+        $this->assertStringContainsString('Package Answers', $step6Confirmation);
+        $this->assertStringContainsString('Package Answers', $adminEdit);
+        $this->assertStringContainsString('render_package_qa_html', $emailHelper);
+        $this->assertStringContainsString('package_answer_rows', $adminEmailTemplate);
+        $this->assertStringContainsString('package_answer_rows', $customerEmailTemplate);
+
+        // 4) Others selected should appear consistently.
+        $this->assertStringContainsString('Others:', $step5Payment);
+        $this->assertStringContainsString('Others:', $step6Confirmation);
+        $this->assertStringContainsString('Others explanation:', $adminEdit);
+        $this->assertStringContainsString('Others explanation:', $emailHelper);
+
+        // 5) Multi-package readability: answers are tied to package identity.
+        $this->assertStringContainsString('${field.label} (${pkg.title})', $step5Payment);
+        $this->assertStringContainsString('`${row.label}-${index}`', $step6Confirmation);
+    }
 }
