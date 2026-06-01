@@ -40,6 +40,25 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     $selected_items = is_array($booking['_selected_items'] ?? null) ? $booking['_selected_items'] : [];
     $extras_details = is_array($booking['_extras_details'] ?? null) ? $booking['_extras_details'] : [];
     $price_breakdown = is_array($booking['_price_breakdown'] ?? null) ? $booking['_price_breakdown'] : [];
+    if (empty($price_breakdown)) {
+        $snapshot = is_array($booking['_price_snapshot_v1'] ?? null) ? $booking['_price_snapshot_v1'] : [];
+        $snapshot_lines = is_array($snapshot['line_items'] ?? null) ? $snapshot['line_items'] : [];
+        foreach ($snapshot_lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = trim((string) ($line['label'] ?? ''));
+            $amount = isset($line['line_total']) ? (float) $line['line_total'] : 0.0;
+            if ($label === '') {
+                continue;
+            }
+            $price_breakdown[] = [
+                'label' => $label,
+                'amount' => $amount,
+                'type' => (string) ($line['type'] ?? ''),
+            ];
+        }
+    }
     $meta_data = is_array($booking['_meta_data'] ?? null) ? $booking['_meta_data'] : [];
 
     // Format time/date.
@@ -379,6 +398,56 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     if ($package_answers_json === '') {
         $package_answers_json = (string) $repo->get_meta($booking_id, '_sb_package_question_answers');
     }
+    $package_answers_for_pricing = [];
+    if ($package_answers_json !== '') {
+        $decoded_package_answers = json_decode($package_answers_json, true);
+        if (is_array($decoded_package_answers)) {
+            $package_answers_for_pricing = $decoded_package_answers;
+        }
+    }
+
+    $selected_item_ids = array_map(static function ($item) {
+        return (int) ($item['id'] ?? 0);
+    }, $selected_items);
+    $selected_item_ids = array_values(array_filter($selected_item_ids));
+    $package_ids = array_map(static function ($item) {
+        if (!is_array($item)) {
+            return 0;
+        }
+        return ((string) ($item['type'] ?? '')) === 'sb_package' ? (int) ($item['id'] ?? 0) : 0;
+    }, $selected_items);
+    $package_ids = array_values(array_filter($package_ids));
+    $extras_for_pricing = array_map(static function ($extra) {
+        if (!is_array($extra)) {
+            return ['extra_id' => 0, 'quantity' => 1];
+        }
+        return [
+            'extra_id' => (int) ($extra['extra_id'] ?? 0),
+            'quantity' => max(1, (int) ($extra['quantity'] ?? 1)),
+        ];
+    }, $extras_details);
+    $extras_for_pricing = array_values(array_filter($extras_for_pricing, static function ($extra) {
+        return ((int) ($extra['extra_id'] ?? 0)) > 0;
+    }));
+
+    if (!empty($selected_item_ids)) {
+        $pricing_service = new \SpaceBooking\Services\PricingService();
+        $computed = $pricing_service->calculate(
+            null,
+            (string) ($booking['booking_date'] ?? ''),
+            (string) ($booking['start_time'] ?? ''),
+            (string) ($booking['end_time'] ?? ''),
+            $extras_for_pricing,
+            $selected_item_ids,
+            $package_ids,
+            $package_answers_for_pricing,
+            null
+        );
+        if (!empty($computed['breakdown']) && is_array($computed['breakdown'])) {
+            $price_breakdown = $computed['breakdown'];
+        }
+    }
+
     $package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
         $package_answers_json
     );

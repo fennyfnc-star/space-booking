@@ -152,6 +152,13 @@ if ($package_question_answers_json === '' && isset($booking['_meta_data']['_sb_p
 $package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
     $package_question_answers_json
 );
+$package_answers_for_pricing = [];
+if ($package_question_answers_json !== '') {
+    $decoded_package_answers = json_decode($package_question_answers_json, true);
+    if (is_array($decoded_package_answers)) {
+        $package_answers_for_pricing = $decoded_package_answers;
+    }
+}
 
 if ($linked_order) {
     $order_name = trim((string) $linked_order->get_formatted_billing_full_name());
@@ -217,6 +224,7 @@ if (!empty($selected_item_ids)) {
         $extras_for_pricing,
         $selected_item_ids,
         $package_ids,
+        $package_answers_for_pricing,
         null
     );
 

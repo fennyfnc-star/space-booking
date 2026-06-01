@@ -93,6 +93,14 @@ export const fetchPricing = (params: {
   extras?: SelectedExtra[];
   package_id?: number;
   package_ids?: number[];
+  package_question_answers?: Array<{
+    package_id: number;
+    field_key: string;
+    field_label: string;
+    field_type: PackageThemeMetaField["type"];
+    value: string | number | string[];
+    others_text?: string;
+  }>;
   slot_id?: string;
 }) => {
   const qs = new URLSearchParams();
@@ -110,6 +118,20 @@ export const fetchPricing = (params: {
   (params.extras ?? []).forEach((e, i) => {
     qs.set(`extras[${i}][extra_id]`, String(e.extra_id));
     qs.set(`extras[${i}][quantity]`, String(e.quantity));
+  });
+  (params.package_question_answers ?? []).forEach((a, i) => {
+    qs.set(`package_question_answers[${i}][package_id]`, String(a.package_id));
+    qs.set(`package_question_answers[${i}][field_key]`, String(a.field_key));
+    qs.set(`package_question_answers[${i}][field_label]`, String(a.field_label));
+    qs.set(`package_question_answers[${i}][field_type]`, String(a.field_type));
+    if (Array.isArray(a.value)) {
+      a.value.forEach((v, j) => qs.set(`package_question_answers[${i}][value][${j}]`, String(v)));
+    } else {
+      qs.set(`package_question_answers[${i}][value]`, String(a.value));
+    }
+    if (a.others_text) {
+      qs.set(`package_question_answers[${i}][others_text]`, String(a.others_text));
+    }
   });
   return apiFetch<PricingResponse>(`/pricing?${qs.toString()}`);
 };

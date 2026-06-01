@@ -13,6 +13,9 @@ type PackageQuestionEntry = {
 const answerKeyFor = (packageId: number, fieldKey: string) =>
   `pkg_${packageId}__${fieldKey}`;
 
+const hasOthersSelected = (value: string | number | string[] | undefined): boolean =>
+  Array.isArray(value) ? value.includes("Others") : value === "Others";
+
 export function Step4PackageQuestions() {
   const {
     selectedItems,
@@ -42,11 +45,12 @@ export function Step4PackageQuestions() {
     value: string | number | string[],
     othersText?: string,
   ) => {
-    setPackageQuestionAnswer(key, value, othersText);
+    const othersSelected = hasOthersSelected(value);
+    setPackageQuestionAnswer(key, value, othersSelected ? othersText : "");
     setErrors((prev) => {
       const next = { ...prev };
       delete next[key];
-      if (othersText !== undefined) {
+      if (!othersSelected || othersText !== undefined) {
         delete next[`${key}__others`];
       }
       return next;
@@ -104,6 +108,19 @@ export function Step4PackageQuestions() {
           const value = answer?.value;
           const type = entry.field.type;
           const options = Array.isArray(entry.field.options) ? entry.field.options : [];
+          const optionPrices =
+            entry.field.option_prices && typeof entry.field.option_prices === "object"
+              ? entry.field.option_prices
+              : {};
+          const hasPricedOptions =
+            !!entry.field.priced_options &&
+            ["radio", "checkbox", "select"].includes(type);
+          const renderOptionLabel = (opt: string) => {
+            if (!hasPricedOptions) return opt;
+            const amount = Number(optionPrices[opt] ?? 0);
+            if (amount <= 0) return opt;
+            return `${opt} (+${window.sbConfig.symbol}${amount.toFixed(2)})`;
+          };
           const othersEnabled =
             !!entry.field.allow_others &&
             ["radio", "checkbox", "select"].includes(type);
@@ -158,10 +175,14 @@ export function Step4PackageQuestions() {
                   <option value="">Select an option</option>
                   {options.map((opt) => (
                     <option key={opt} value={opt}>
-                      {opt}
+                      {renderOptionLabel(opt)}
                     </option>
                   ))}
-                  {othersEnabled && <option value="Others">Others</option>}
+                  {othersEnabled && (
+                    <option value="Others">
+                      {hasPricedOptions ? renderOptionLabel("Others") : "Others"}
+                    </option>
+                  )}
                 </select>
               )}
               {type === "radio" && (
@@ -176,7 +197,7 @@ export function Step4PackageQuestions() {
                           setValue(key, opt, answer?.others_text || "")
                         }
                       />{" "}
-                      {opt}
+                      {renderOptionLabel(opt)}
                     </label>
                   ))}
                   {othersEnabled && (
@@ -187,7 +208,7 @@ export function Step4PackageQuestions() {
                         checked={value === "Others"}
                         onChange={() => setValue(key, "Others")}
                       />{" "}
-                      Others
+                      {hasPricedOptions ? renderOptionLabel("Others") : "Others"}
                     </label>
                   )}
                 </div>
@@ -210,7 +231,7 @@ export function Step4PackageQuestions() {
                             setValue(key, next, answer?.others_text || "");
                           }}
                         />{" "}
-                        {opt}
+                        {renderOptionLabel(opt)}
                       </label>
                     );
                   })}
@@ -227,7 +248,7 @@ export function Step4PackageQuestions() {
                           setValue(key, next, answer?.others_text || "");
                         }}
                       />{" "}
-                      Others
+                      {hasPricedOptions ? renderOptionLabel("Others") : "Others"}
                     </label>
                   )}
                 </div>

@@ -63,6 +63,8 @@ export interface PackageThemeMetaField {
   required?: boolean;
   allow_others?: boolean;
   options?: string[];
+  priced_options?: boolean;
+  option_prices?: Record<string, number>;
 }
 
 export interface Extra {

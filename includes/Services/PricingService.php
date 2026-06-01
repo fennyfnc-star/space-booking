@@ -21,6 +21,7 @@ final class PricingService
 	 * @param array     $extras       [ ['extra_id' => int, 'quantity' => int], ... ]
 	 * @param array|null $item_ids    NEW: Array of item IDs to price (spaces and packages)
 	 * @param array|null $package_ids NEW: Array of package IDs (for extras inclusion calculation)
+	 * @param array|null $package_question_answers NEW: selected package-question answers
 	 * @param string|null $slot_id
 	 * @return array {
 	 *   base_price: float,
@@ -38,6 +39,7 @@ final class PricingService
 		array $extras = [],
 		?array $item_ids = null,
 		?array $package_ids = null,
+		?array $package_question_answers = null,
 		?string $slot_id = null
 	): array {
 		$duration_hours = $this->hours_between($start_time, $end_time);
@@ -184,7 +186,9 @@ final class PricingService
 		// NEW SCHEMA: Use package_ids array for extras allowance calculation
 		$extras_result = $this->calculate_extras_with_allowance($extras, $package_ids);
 		$extras_price = $extras_result['total'];
-		$total = $running_total + $extras_price;
+		$question_pricing = $this->calculate_package_question_pricing($package_question_answers ?? []);
+		$package_question_price = (float) ($question_pricing['total'] ?? 0.0);
+		$total = $running_total + $extras_price + $package_question_price;
 
 		$breakdown = $enriched_breakdown;
 		$extras_breakdown = [];
@@ -192,10 +196,14 @@ final class PricingService
 			$extras_breakdown = $extras_result['breakdown'];
 			$breakdown = array_merge($breakdown, $extras_breakdown);
 		}
+		if (!empty($question_pricing['breakdown']) && is_array($question_pricing['breakdown'])) {
+			$breakdown = array_merge($breakdown, $question_pricing['breakdown']);
+		}
 
 		return [
 			'base_price' => $running_total,
 			'extras_price' => $extras_price,
+			'package_question_price' => $package_question_price,
 			'total_price' => round($total, 2),
 			'duration_hours' => $duration_hours,
 			'display_duration' => round($display_duration, 1),
@@ -204,6 +212,86 @@ final class PricingService
 			'extras_breakdown' => $extras_breakdown,
 			'extras_details' => $extras_result['details']  // NEW: UI details with included/paid split
 		];
+	}
+
+	private function calculate_package_question_pricing(array $answers): array
+	{
+		$total = 0.0;
+		$breakdown = [];
+		if (empty($answers)) {
+			return ['total' => 0.0, 'breakdown' => []];
+		}
+
+		foreach ($answers as $entry) {
+			if (!is_array($entry)) {
+				continue;
+			}
+			$package_id = (int) ($entry['package_id'] ?? 0);
+			$field_key = sanitize_key((string) ($entry['field_key'] ?? ''));
+			if ($package_id <= 0 || $field_key === '') {
+				continue;
+			}
+
+			$fields = get_post_meta($package_id, '_sb_package_theme_meta_fields', true);
+			if (!is_array($fields)) {
+				continue;
+			}
+
+			$target_field = null;
+			foreach ($fields as $field) {
+				if (!is_array($field)) {
+					continue;
+				}
+				if (sanitize_key((string) ($field['key'] ?? '')) === $field_key) {
+					$target_field = $field;
+					break;
+				}
+			}
+			if (!is_array($target_field)) {
+				continue;
+			}
+
+			$type = sanitize_text_field((string) ($target_field['type'] ?? ''));
+			if (!in_array($type, ['radio', 'checkbox', 'select'], true) || empty($target_field['priced_options'])) {
+				continue;
+			}
+
+			$option_prices = is_array($target_field['option_prices'] ?? null) ? $target_field['option_prices'] : [];
+			if (empty($option_prices)) {
+				continue;
+			}
+
+			$value = $entry['value'] ?? null;
+			$selected_options = is_array($value) ? $value : [$value];
+			$package_title = sanitize_text_field((string) get_the_title($package_id));
+			$field_label = sanitize_text_field((string) ($target_field['label'] ?? $field_key));
+
+			foreach ($selected_options as $selected) {
+				$selected_label = sanitize_text_field((string) $selected);
+				if ($selected_label === '') {
+					continue;
+				}
+				$price_value = isset($option_prices[$selected_label]) ? (float) $option_prices[$selected_label] : 0.0;
+				if ($price_value <= 0) {
+					continue;
+				}
+				$display_option = $selected_label;
+				if (strtolower($selected_label) === 'others') {
+					$others_text = sanitize_text_field((string) ($entry['others_text'] ?? ''));
+					if ($others_text !== '') {
+						$display_option = 'Others (' . $others_text . ')';
+					}
+				}
+				$total += $price_value;
+				$breakdown[] = [
+					'label' => trim($package_title . ' - ' . $field_label . ': ' . $display_option),
+					'amount' => $price_value,
+					'context' => ['type' => 'extra', 'name' => $display_option, 'id' => $package_id],
+				];
+			}
+		}
+
+		return ['total' => round($total, 2), 'breakdown' => $breakdown];
 	}
 
 	private function get_extras_breakdown(array $extras): array
