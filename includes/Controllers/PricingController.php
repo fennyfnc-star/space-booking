@@ -48,6 +48,7 @@ final class PricingController extends WP_REST_Controller
 		$start_time = (string) $request->get_param('start_time');
 		$end_time = (string) $request->get_param('end_time');
 		$extras = (array) ($request->get_param('extras') ?? []);
+		$package_question_answers = (array) ($request->get_param('package_question_answers') ?? []);
 
 		error_log('SB_DEBUG_PRICING: FULL REQUEST PARAMS: ' . json_encode($request->get_params()));
 		error_log('SB_DEBUG_PRICING: Parsed item_ids=' . json_encode($item_ids) . ", space_id=$space_id, package_ids=" . json_encode($package_ids) . ", date=$date, time=$start_time-$end_time");
@@ -85,7 +86,15 @@ final class PricingController extends WP_REST_Controller
 		}
 
 		$price = $this->pricing->calculate(
-			$space_id, $date, $start_time, $end_time, $extras, $item_ids, $package_ids, $request->get_param('slot_id')
+			$space_id,
+			$date,
+			$start_time,
+			$end_time,
+			$extras,
+			$item_ids,
+			$package_ids,
+			$package_question_answers,
+			$request->get_param('slot_id')
 		);
 
 		error_log('SB_DEBUG_PRICING: Calculated total: ' . $price['total_price'] . ', breakdown count: ' . count($price['breakdown']));
@@ -108,6 +117,7 @@ final class PricingController extends WP_REST_Controller
 			'start_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'end_time' => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
 			'extras' => ['required' => false, 'default' => []],
+			'package_question_answers' => ['required' => false, 'default' => []],
 		];
 	}
 }

@@ -111,7 +111,9 @@ final class PackageMetaBox
                     $type = sanitize_text_field((string) ($field['type'] ?? 'text'));
                     $required = !empty($field['required']);
                     $allow_others = !empty($field['allow_others']);
+                    $priced_options = !empty($field['priced_options']);
                     $options = isset($field['options']) && is_array($field['options']) ? $field['options'] : [];
+                    $option_prices = isset($field['option_prices']) && is_array($field['option_prices']) ? $field['option_prices'] : [];
                     ?>
                     <div class="sb-package-field-row" style="border:1px solid #dcdcde;border-radius:6px;padding:12px;margin-bottom:12px;background:#fff;">
                         <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
@@ -140,11 +142,25 @@ final class PackageMetaBox
                                 <input type="checkbox" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][allow_others]" value="1" <?php checked($allow_others); ?>>
                                 <?php esc_html_e('Allow "Others" option', 'space-booking'); ?>
                             </label>
+                            <label class="sb-priced-options-wrap" style="<?php echo in_array($type, ['radio', 'checkbox', 'select'], true) ? '' : 'display:none;'; ?>">
+                                <input type="checkbox" class="sb-priced-options-toggle" name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][priced_options]" value="1" <?php checked($priced_options); ?>>
+                                <?php esc_html_e('Priced options', 'space-booking'); ?>
+                            </label>
                             <button type="button" class="button-link-delete sb-remove-theme-field"><?php esc_html_e('Remove', 'space-booking'); ?></button>
                         </div>
                         <p class="sb-options-wrap" style="margin-top:10px;<?php echo in_array($type, ['radio', 'checkbox', 'select'], true) ? '' : 'display:none;'; ?>">
                             <label><strong><?php esc_html_e('Options (one per line)', 'space-booking'); ?></strong></label><br>
                             <textarea name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][options]" rows="4" class="large-text"><?php echo esc_textarea(implode("\n", array_map('sanitize_text_field', $options))); ?></textarea>
+                        </p>
+                        <p class="sb-option-prices-wrap" style="margin-top:10px;<?php echo (in_array($type, ['radio', 'checkbox', 'select'], true) && $priced_options) ? '' : 'display:none;'; ?>">
+                            <label><strong><?php esc_html_e('Option Prices (one per line: Option|Price)', 'space-booking'); ?></strong></label><br>
+                            <textarea name="sb_package_theme_meta_fields[<?php echo esc_attr((string) $index); ?>][option_prices]" rows="4" class="large-text" placeholder="Balloon Theme|25&#10;Premium Table Setup|40&#10;Others|15"><?php
+                                $price_lines = [];
+                                foreach ($option_prices as $option_label => $option_price) {
+                                    $price_lines[] = sanitize_text_field((string) $option_label) . '|' . (float) $option_price;
+                                }
+                                echo esc_textarea(implode("\n", $price_lines));
+                            ?></textarea>
                         </p>
                     </div>
                 <?php endforeach; ?>
@@ -191,11 +207,19 @@ final class PackageMetaBox
                                 <input type="checkbox" name="sb_package_theme_meta_fields[${index}][allow_others]" value="1">
                                 Allow "Others" option
                             </label>
+                            <label class="sb-priced-options-wrap" style="display:none;">
+                                <input type="checkbox" class="sb-priced-options-toggle" name="sb_package_theme_meta_fields[${index}][priced_options]" value="1">
+                                Priced options
+                            </label>
                             <button type="button" class="button-link-delete sb-remove-theme-field">Remove</button>
                         </div>
                         <p class="sb-options-wrap" style="margin-top:10px;display:none;">
                             <label><strong>Options (one per line)</strong></label><br>
                             <textarea name="sb_package_theme_meta_fields[${index}][options]" rows="4" class="large-text"></textarea>
+                        </p>
+                        <p class="sb-option-prices-wrap" style="margin-top:10px;display:none;">
+                            <label><strong>Option Prices (one per line: Option|Price)</strong></label><br>
+                            <textarea name="sb_package_theme_meta_fields[${index}][option_prices]" rows="4" class="large-text" placeholder="Balloon Theme|25&#10;Premium Table Setup|40&#10;Others|15"></textarea>
                         </p>
                     </div>
                 `;
@@ -204,13 +228,22 @@ final class PackageMetaBox
                     const typeEl = row.querySelector('.sb-answer-type');
                     const optionsWrap = row.querySelector('.sb-options-wrap');
                     const allowOthersWrap = row.querySelector('.sb-allow-others-wrap');
-                    if (!typeEl || !optionsWrap || !allowOthersWrap) return;
+                    const pricedOptionsWrap = row.querySelector('.sb-priced-options-wrap');
+                    const pricedOptionsToggle = row.querySelector('.sb-priced-options-toggle');
+                    const optionPricesWrap = row.querySelector('.sb-option-prices-wrap');
+                    if (!typeEl || !optionsWrap || !allowOthersWrap || !pricedOptionsWrap || !optionPricesWrap) return;
                     const showChoice = choiceTypes.includes(typeEl.value);
                     optionsWrap.style.display = showChoice ? '' : 'none';
                     allowOthersWrap.style.display = showChoice ? '' : 'none';
+                    pricedOptionsWrap.style.display = showChoice ? '' : 'none';
+                    const showPriceLines = showChoice && !!(pricedOptionsToggle && pricedOptionsToggle.checked);
+                    optionPricesWrap.style.display = showPriceLines ? '' : 'none';
                     if (!showChoice) {
                         const checkbox = allowOthersWrap.querySelector('input[type="checkbox"]');
                         if (checkbox) checkbox.checked = false;
+                        if (pricedOptionsToggle instanceof HTMLInputElement) {
+                            pricedOptionsToggle.checked = false;
+                        }
                     }
                 };
 
@@ -233,6 +266,10 @@ final class PackageMetaBox
                     const row = target.closest('.sb-package-field-row');
                     if (!row) return;
                     if (target.classList.contains('sb-answer-type')) {
+                        syncVisibility(row);
+                        return;
+                    }
+                    if (target.classList.contains('sb-priced-options-toggle')) {
                         syncVisibility(row);
                     }
                 });
@@ -313,6 +350,7 @@ final class PackageMetaBox
             $type = sanitize_text_field((string) ($field['type'] ?? 'text'));
             $required = !empty($field['required']);
             $allow_others = !empty($field['allow_others']);
+            $priced_options = !empty($field['priced_options']);
 
             if ($label === '' || !in_array($type, self::ALLOWED_ANSWER_TYPES, true)) {
                 continue;
@@ -339,8 +377,30 @@ final class PackageMetaBox
                 if (empty($options)) {
                     continue;
                 }
+                $option_prices = [];
+                if ($priced_options) {
+                    $raw_option_prices = explode("\n", (string) ($field['option_prices'] ?? ''));
+                    foreach ($raw_option_prices as $line) {
+                        $line = trim((string) $line);
+                        if ($line === '' || strpos($line, '|') === false) {
+                            continue;
+                        }
+                        [$option_label, $raw_price] = array_map('trim', explode('|', $line, 2));
+                        $option_label = sanitize_text_field($option_label);
+                        if ($option_label === '') {
+                            continue;
+                        }
+                        $price_value = (float) $raw_price;
+                        if ($price_value <= 0) {
+                            continue;
+                        }
+                        $option_prices[$option_label] = $price_value;
+                    }
+                }
             } else {
                 $allow_others = false;
+                $priced_options = false;
+                $option_prices = [];
             }
 
             $normalized = [
@@ -353,6 +413,12 @@ final class PackageMetaBox
 
             if (!empty($options)) {
                 $normalized['options'] = $options;
+            }
+            if ($priced_options) {
+                $normalized['priced_options'] = true;
+                if (!empty($option_prices)) {
+                    $normalized['option_prices'] = $option_prices;
+                }
             }
 
             $sanitized[] = $normalized;

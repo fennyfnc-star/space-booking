@@ -116,6 +116,7 @@ final class BookingController extends WP_REST_Controller
 		$marketing_source = sanitize_text_field($request->get_param('marketing_source') ?? '');
 		$frontend_breakdown = $request->get_param('price_breakdown') ?: [];
 		$package_question_answers = $request->get_param('package_question_answers') ?: [];
+		$sanitized_package_answers = $this->sanitize_package_question_answers((array) $package_question_answers);
 		$selected_item_ids = array_values(array_filter(array_map('absint', (array) $request->get_param('selected_item_ids'))));
 		$honeypot = sanitize_text_field((string) ($request->get_param('website_url') ?? ''));
 		$form_started_at = (int) $request->get_param('form_started_at');
@@ -284,7 +285,14 @@ final class BookingController extends WP_REST_Controller
 		// NEW SCHEMA: Pass arrays to pricing service
 		$price = $this->pricing->calculate(
 			null, // deprecated first param (was $lead_space_id)
-			$date, $start_time, $end_time, $extras, $selected_item_ids, $package_ids, null
+			$date,
+			$start_time,
+			$end_time,
+			$extras,
+			$selected_item_ids,
+			$package_ids,
+			$sanitized_package_answers,
+			null
 		);
 
 		// DEBUG: Log pricing details
@@ -416,7 +424,6 @@ final class BookingController extends WP_REST_Controller
 				$this->repo->save_meta($booking_id, '_sb_package_inclusions', wp_json_encode($inclusions));
 				error_log('SpaceBooking: Saved ' . count($inclusions) . ' package inclusions for booking #' . $booking_id);
 			}
-			$sanitized_package_answers = $this->sanitize_package_question_answers((array) $package_question_answers);
 			if (!empty($sanitized_package_answers)) {
 				$this->repo->save_meta($booking_id, '_sb_package_question_answers', wp_json_encode($sanitized_package_answers));
 			}

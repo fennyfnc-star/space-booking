@@ -79,6 +79,40 @@ export function Step5Payment() {
       const spaceId = getFirstSpaceId();
       if (!selectedItems.length || !selectedDate || !selectedStartTime || !selectedEndTime) return;
       const itemIds = selectedItems.map((item) => Number(item.id));
+      const packageQuestionPricingPayload: Array<{
+        package_id: number;
+        field_key: string;
+        field_label: string;
+        field_type: "text" | "textarea" | "number" | "radio" | "checkbox" | "select";
+        value: string | number | string[];
+        others_text?: string;
+      }> = selectedItems
+        .filter((item): item is SelectedPackageItem => item.type === "package")
+        .flatMap((pkg) => {
+          const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];
+          return fields
+            .map((field) => {
+              const answerKey = `pkg_${pkg.id}__${field.key}`;
+              const answer = packageQuestionAnswers[answerKey];
+              if (!answer) return null;
+              const value = answer.value;
+              const isEmpty =
+                value === undefined ||
+                value === null ||
+                value === "" ||
+                (Array.isArray(value) && value.length === 0);
+              if (isEmpty) return null;
+              return {
+                package_id: Number(pkg.id),
+                field_key: field.key,
+                field_label: field.label,
+                field_type: field.type,
+                value,
+                ...(answer.others_text ? { others_text: answer.others_text } : {}),
+              };
+            })
+            .filter((v): v is NonNullable<typeof v> => v !== null);
+        });
       try {
         const res = await fetchPricing({
           space_id: spaceId,
@@ -88,14 +122,15 @@ export function Step5Payment() {
           end_time: selectedEndTime,
           extras: selectedExtras,
           package_ids: useBookingStore.getState().getAllPackageIds(),
+          package_question_answers: packageQuestionPricingPayload,
         });
-        useBookingStore.getState().setPriceBreakdown(res.breakdown, res.total_price);
+        useBookingStore.getState().setPriceBreakdown(res.breakdown, res.total_price, res.extras_details || []);
       } catch (e) {
         console.error("Step5 pricing refresh failed:", e);
       }
     };
     refreshPricing();
-  }, []);
+  }, [selectedItems, selectedDate, selectedStartTime, selectedEndTime, selectedExtras, packageQuestionAnswers]);
 
   const buildPackageQuestionPayload = () => {
     const payload: Array<{
