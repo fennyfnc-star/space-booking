@@ -206,9 +206,33 @@ final class WooCommerceIntegration
 
         $schedule_row = self::build_schedule_row($first_cart_item);
         $booking_id = absint($first_cart_item['sb_booking_id'] ?? 0);
-        $rows = self::normalize_breakdown_rows(
-            self::resolve_breakdown_for_cart_item($first_cart_item, $booking_id > 0 ? $booking_id : 0)
-        );
+
+        $rows = [];
+        $has_per_line_breakdown = false;
+        foreach ($cart_items as $cart_item) {
+            if (!is_array($cart_item)) {
+                continue;
+            }
+            if ($booking_id <= 0) {
+                $booking_id = absint($cart_item['sb_booking_id'] ?? 0);
+            }
+            $line_breakdown = (string) ($cart_item['sb_breakdown'] ?? '');
+            if ($line_breakdown === '') {
+                continue;
+            }
+            $decoded = json_decode($line_breakdown, true);
+            if (!is_array($decoded) || empty($decoded)) {
+                continue;
+            }
+            $has_per_line_breakdown = true;
+            $rows = array_merge($rows, self::normalize_breakdown_rows($decoded));
+        }
+
+        if (!$has_per_line_breakdown) {
+            $rows = self::normalize_breakdown_rows(
+                self::resolve_breakdown_for_cart_item($first_cart_item, $booking_id > 0 ? $booking_id : 0)
+            );
+        }
 
         if ($schedule_row === null && empty($rows)) {
             return;
