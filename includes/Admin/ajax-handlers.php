@@ -192,6 +192,22 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
             $order = null;
         }
     }
+    if (!$order instanceof WC_Order && function_exists('wc_get_orders')) {
+        $orders = wc_get_orders([
+            'limit' => 1,
+            'return' => 'objects',
+            'meta_query' => [
+                [
+                    'key' => '_sb_booking_id',
+                    'value' => $booking_id,
+                    'compare' => '=',
+                ],
+            ],
+        ]);
+        if (!empty($orders) && $orders[0] instanceof WC_Order) {
+            $order = $orders[0];
+        }
+    }
     $order_date = ($order instanceof WC_Order && $order->get_date_created())
         ? wc_format_datetime($order->get_date_created())
         : $date_display;
@@ -266,8 +282,12 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         </div>';
     }
 
+    $package_answers_json = (string) ($meta_data['_sb_package_question_answers'] ?? '');
+    if ($package_answers_json === '') {
+        $package_answers_json = (string) $repo->get_meta($booking_id, '_sb_package_question_answers');
+    }
     $package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
-        (string) ($meta_data['_sb_package_question_answers'] ?? '')
+        $package_answers_json
     );
     $package_answers_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html($package_answer_rows);
 
@@ -402,30 +422,44 @@ add_action('wp_ajax_sb_update_booking_status', function () {
 
     $repo = new \SpaceBooking\Services\BookingRepository();
     $booking = $repo->find($booking_id);
+    $actor_user_id = get_current_user_id();
 
     if (!$booking) {
         wp_send_json_error('Booking not found');
     }
 
     $extra_data = $feedback ? ['admin_feedback' => $feedback] : [];
-    
-    // If changing to confirmed, send confirmation email first
+
+    // If changing to confirmed, send confirmation email first.
     $email_sent = true;
     if ($status === 'confirmed' && $booking['status'] !== 'confirmed') {
         $email_sent = sb_send_booking_confirmation_email($booking_id, $feedback);
-        
+
         if (!$email_sent) {
+            $repo->log_audit_event($booking_id, 'confirmation_email_failed', $actor_user_id, [
+                'trigger' => 'status_change',
+                'attempted_status' => 'confirmed',
+            ]);
             wp_send_json_error([
                 'message' => 'Failed to send confirmation email. Booking status not changed.',
                 'email_failed' => true
             ]);
             return;
         }
+
+        $repo->log_audit_event($booking_id, 'confirmation_email_sent', $actor_user_id, [
+            'trigger' => 'status_change',
+            'result' => 'success',
+        ]);
     }
-    
+
     $updated = $repo->update_status($booking_id, $status, $extra_data);
 
     if ($updated) {
+        $repo->log_audit_event($booking_id, 'status_changed', $actor_user_id, [
+            'from_status' => (string) $booking['status'],
+            'to_status' => (string) $status,
+        ]);
         wp_send_json_success([
             'status' => $status,
             'feedback' => $feedback,
@@ -434,6 +468,51 @@ add_action('wp_ajax_sb_update_booking_status', function () {
     } else {
         wp_send_json_error('Failed to update booking');
     }
+});
+
+add_action('wp_ajax_sb_resend_booking_confirmation_email', function () {
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+
+    check_ajax_referer('sb_update_booking', '_wpnonce');
+
+    $booking_id = absint($_POST['booking_id'] ?? 0);
+    if ($booking_id <= 0) {
+        wp_send_json_error('Invalid booking ID');
+    }
+
+    $repo = new \SpaceBooking\Services\BookingRepository();
+    $booking = $repo->find($booking_id);
+    if (!$booking) {
+        wp_send_json_error('Booking not found');
+    }
+
+    if ((string) ($booking['status'] ?? '') !== 'confirmed') {
+        wp_send_json_error('Only confirmed bookings can resend confirmation email.');
+    }
+
+    $actor_user_id = get_current_user_id();
+    $email_sent = sb_send_booking_confirmation_email($booking_id, '');
+    if (!$email_sent) {
+        $repo->log_audit_event($booking_id, 'confirmation_email_failed', $actor_user_id, [
+            'trigger' => 'manual_resend',
+        ]);
+        wp_send_json_error([
+            'message' => 'Failed to resend confirmation email.',
+            'email_failed' => true,
+        ]);
+        return;
+    }
+
+    $repo->log_audit_event($booking_id, 'confirmation_email_sent', $actor_user_id, [
+        'trigger' => 'manual_resend',
+        'result' => 'success',
+    ]);
+
+    wp_send_json_success([
+        'email_sent' => true,
+    ]);
 });
 
 add_action('wp_ajax_sb_booking_lifecycle_action', function () {

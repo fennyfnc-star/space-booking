@@ -143,42 +143,15 @@ $customer_name = trim((string) ($booking['customer_name'] ?? ''));
 $customer_email = trim((string) ($booking['customer_email'] ?? ''));
 $customer_phone = trim((string) ($booking['customer_phone'] ?? ''));
 $customer_notes = trim((string) ($booking['notes'] ?? ''));
+$checkout_additional_notes = '';
 $marketing_source = trim((string) ($repo->get_meta($booking_id, '_sb_marketing_source') ?? ''));
-$package_question_answers_json = $repo->get_meta($booking_id, '_sb_package_question_answers');
-$package_question_answers = [];
-if (is_string($package_question_answers_json) && $package_question_answers_json !== '') {
-    $decoded_answers = json_decode($package_question_answers_json, true);
-    if (is_array($decoded_answers)) {
-        $package_question_answers = $decoded_answers;
-    }
+$package_question_answers_json = (string) $repo->get_meta($booking_id, '_sb_package_question_answers');
+if ($package_question_answers_json === '' && isset($booking['_meta_data']['_sb_package_question_answers'])) {
+    $package_question_answers_json = (string) $booking['_meta_data']['_sb_package_question_answers'];
 }
-$package_answer_rows = [];
-if (!empty($package_question_answers)) {
-    foreach ($package_question_answers as $answer) {
-        if (!is_array($answer)) {
-            continue;
-        }
-        $field_label = sanitize_text_field((string) ($answer['field_label'] ?? 'Question'));
-        $value = $answer['value'] ?? '';
-        $others_text = sanitize_textarea_field((string) ($answer['others_text'] ?? ''));
-
-        if (is_array($value)) {
-            $value_text = implode(', ', array_map('sanitize_text_field', $value));
-        } else {
-            $value_text = sanitize_text_field((string) $value);
-        }
-
-        if ($field_label === '' || $value_text === '') {
-            continue;
-        }
-
-        $package_answer_rows[] = [
-            'label' => $field_label,
-            'value' => $value_text,
-            'others_text' => $others_text,
-        ];
-    }
-}
+$package_answer_rows = \SpaceBooking\Services\EmailTemplateHelper::package_question_rows_from_meta_string(
+    $package_question_answers_json
+);
 
 if ($linked_order) {
     $order_name = trim((string) $linked_order->get_formatted_billing_full_name());
@@ -193,9 +166,7 @@ if ($linked_order) {
     if ($customer_phone === '') {
         $customer_phone = $order_phone;
     }
-    if ($customer_notes === '') {
-        $customer_notes = trim((string) $linked_order->get_customer_note());
-    }
+    $checkout_additional_notes = trim((string) $linked_order->get_customer_note());
 }
 
 $order_number = $linked_order ? (string) $linked_order->get_order_number() : '';
@@ -279,12 +250,28 @@ $status_color = [
     'confirmed' => '#d4edda',
     'trashed' => '#f8d7da'
 ];
+$audit_log_entries = $repo->get_audit_log($booking_id);
+if (!empty($audit_log_entries)) {
+    usort($audit_log_entries, static function ($a, $b) {
+        return strcmp((string) ($b['timestamp_gmt'] ?? ''), (string) ($a['timestamp_gmt'] ?? ''));
+    });
+}
 ?>
 <style>
 .sb-booking-edit {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
-    max-width: 900px;
+    max-width: 1300px;
     margin: 20px 0;
+}
+.sb-edit-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 20px;
+    align-items: start;
+}
+.sb-side-column {
+    position: sticky;
+    top: 20px;
 }
 
 .sb-section {
@@ -449,6 +436,14 @@ $status_color = [
 }
 
 @media (max-width:768px) {
+    .sb-edit-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .sb-side-column {
+        position: static;
+    }
+
     .sb-info-grid {
         grid-template-columns: 1fr;
     }
@@ -466,6 +461,8 @@ $status_color = [
         <h1>Edit Booking #<?php echo esc_html($booking['id']); ?></h1>
     </div>
 
+    <div class="sb-edit-layout">
+    <div class="sb-main-column">
     <div class="sb-section">
         <h3>📅 Booking Details</h3>
         <div class="sb-info-grid">
@@ -556,7 +553,10 @@ $status_color = [
             </div>
             <?php endif; ?>
             <?php if ($customer_notes !== ''): ?>
-            <div style="grid-column: 1 / -1;"><strong>Notes:</strong> <?php echo esc_html($customer_notes); ?></div>
+            <div style="grid-column: 1 / -1;"><strong>Booking Notes:</strong> <?php echo esc_html($customer_notes); ?></div>
+            <?php endif; ?>
+            <?php if ($checkout_additional_notes !== ''): ?>
+            <div style="grid-column: 1 / -1;"><strong>WooCommerce Additional Notes:</strong> <?php echo esc_html($checkout_additional_notes); ?></div>
             <?php endif; ?>
             <?php if ($marketing_source !== ''): ?>
             <div><strong>📈 How did you hear about us?</strong> <?php echo esc_html($marketing_source); ?></div>
@@ -682,6 +682,9 @@ $status_color = [
             <div class="sb-actions">
                 <button type="submit" class="btn btn-primary">💾 Update Booking</button>
                 <button type="button" class="btn btn-secondary" onclick="history.back()">Cancel</button>
+                <?php if (($booking['status'] ?? '') === 'confirmed'): ?>
+                <button type="button" class="btn btn-secondary" id="sb-resend-email-btn">Resend Confirmation Email</button>
+                <?php endif; ?>
             </div>
         </form>
         <hr style="margin:18px 0;">
@@ -694,28 +697,60 @@ $status_color = [
             <button type="button" class="btn btn-danger sb-lifecycle-btn" data-action="delete_permanently">Delete Permanently</button>
         </div>
     </div>
+    </div>
+    <aside class="sb-side-column">
+        <div class="sb-section">
+            <h3>Transaction Log</h3>
+            <?php if (empty($audit_log_entries)): ?>
+            <p style="margin:0;color:#646970;">No transactions recorded yet.</p>
+            <?php else: ?>
+            <ul class="sb-extras-list" style="margin:0;">
+                <?php foreach ($audit_log_entries as $entry): ?>
+                <?php
+                $event = sanitize_key((string) ($entry['event'] ?? ''));
+                $context = is_array($entry['context'] ?? null) ? $entry['context'] : [];
+                $actor_user_id = (int) ($entry['actor_user_id'] ?? 0);
+                $actor_user = $actor_user_id > 0 ? get_userdata($actor_user_id) : null;
+                $actor_name = $actor_user ? (string) $actor_user->display_name : ($actor_user_id > 0 ? ('User #' . $actor_user_id) : 'System');
+                $timestamp_gmt = (string) ($entry['timestamp_gmt'] ?? '');
+                $timestamp_local = $timestamp_gmt !== '' ? get_date_from_gmt($timestamp_gmt, 'Y-m-d H:i:s') : '';
+                $event_label = 'Activity';
+                if ($event === 'status_changed') {
+                    $event_label = 'Status changed';
+                } elseif ($event === 'confirmation_email_sent') {
+                    $event_label = 'Confirmation email sent';
+                } elseif ($event === 'confirmation_email_failed') {
+                    $event_label = 'Confirmation email failed';
+                } elseif ($event === 'booking_trashed') {
+                    $event_label = 'Moved to trash';
+                } elseif ($event === 'booking_restored') {
+                    $event_label = 'Restored from trash';
+                } elseif ($event === 'booking_delete_permanently') {
+                    $event_label = 'Deleted permanently';
+                }
+                ?>
+                <li class="sb-extra-item" style="display:block;">
+                    <div><strong><?php echo esc_html($event_label); ?></strong></div>
+                    <?php if ($event === 'status_changed'): ?>
+                    <div style="margin-top:4px;color:#50575e;">
+                        <?php echo esc_html((string) ($context['from_status'] ?? '')); ?> -> <?php echo esc_html((string) ($context['to_status'] ?? '')); ?>
+                    </div>
+                    <?php endif; ?>
+                    <div style="margin-top:4px;color:#50575e;">
+                        <?php echo esc_html($actor_name); ?><?php echo $timestamp_local !== '' ? ' · ' . esc_html($timestamp_local) : ''; ?>
+                    </div>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+        </div>
+    </aside>
+    </div>
 </div>
 
 <script>
 jQuery(document).ready(function($) {
     const form = $('#sb-edit-form');
-    const preview = $('#sb-status-preview');
-    const statuses = {
-        'pending': '#fff3cd',
-        'in_review': '#cce5ff',
-        'confirmed': '#d4edda',
-        'trashed': '#f8d7da'
-    };
-
-    // Live status preview
-    $('#status').on('change', function() {
-        const status = $(this).val();
-        const badge = $('.sb-status-badge', preview);
-        preview.css('background', statuses[status]);
-        badge.text(status.charAt(0).toUpperCase() + status.slice(1))
-            .css('background', statuses[status])
-            .css('color', '#155724');
-    });
 
     // Form submit
     form.on('submit', function(e) {
@@ -738,9 +773,8 @@ jQuery(document).ready(function($) {
                 } else {
                     showToast('✅ Booking updated successfully!', 'success');
                 }
-                // Update preview to match saved status
-                $('#status').val(res.data.status).trigger('change');
                 $('#feedback').val(res.data.feedback || '');
+                window.setTimeout(() => window.location.reload(), 700);
             } else {
                 // Check for email failure
                 const errorData = res.data;
@@ -765,6 +799,26 @@ jQuery(document).ready(function($) {
         toast.css('transform', 'translateX(0)');
         setTimeout(() => toast.remove(), 4000);
     }
+
+    $('#sb-resend-email-btn').on('click', function() {
+        const button = $(this).prop('disabled', true).text('Sending...');
+        $.post(ajaxurl, {
+            action: 'sb_resend_booking_confirmation_email',
+            booking_id: <?php echo $booking_id; ?>,
+            _wpnonce: '<?php echo wp_create_nonce('sb_update_booking'); ?>'
+        }, function(res) {
+            if (res.success) {
+                showToast('âœ… Confirmation email resent successfully.', 'success');
+                window.setTimeout(() => window.location.reload(), 700);
+                return;
+            }
+            showToast('âŒ ' + ((res.data && res.data.message) ? res.data.message : (res.data || 'Resend failed')), 'error');
+            button.prop('disabled', false).text('Resend Confirmation Email');
+        }).fail(function() {
+            showToast('âŒ Network error. Please try again.', 'error');
+            button.prop('disabled', false).text('Resend Confirmation Email');
+        });
+    });
 
     $(document).on('click', '.sb-lifecycle-btn', function() {
         const lifecycleAction = $(this).data('action');

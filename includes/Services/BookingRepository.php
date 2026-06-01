@@ -892,4 +892,26 @@ class BookingRepository
 		$this->save_meta($booking_id, '_sb_audit_log', wp_json_encode($entries));
 		error_log(sprintf('SpaceBooking audit: %s booking #%d by user #%d', $event, $booking_id, $actor_user_id));
 	}
+
+	public function log_audit_event(int $booking_id, string $event, int $actor_user_id, array $context = []): void
+	{
+		$this->append_audit_log($booking_id, $event, $actor_user_id, $context);
+	}
+
+	public function get_audit_log(int $booking_id): array
+	{
+		$existing_json = $this->get_meta($booking_id, '_sb_audit_log');
+		if (!is_string($existing_json) || $existing_json === '') {
+			return [];
+		}
+
+		$decoded = json_decode($existing_json, true);
+		if (!is_array($decoded)) {
+			return [];
+		}
+
+		return array_values(array_filter($decoded, static function ($entry) {
+			return is_array($entry) && !empty($entry['event']) && !empty($entry['timestamp_gmt']);
+		}));
+	}
 }
