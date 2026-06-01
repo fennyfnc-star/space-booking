@@ -1,4 +1,5 @@
-import type { Extra, MergedExtra } from "@/types";
+import type { Extra } from "@/types";
+import type { MergedExtra } from "@/store/bookingStore";
 
 /**
  * Enriched breakdown item for price preview

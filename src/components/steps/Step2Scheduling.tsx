@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { fetchMultiAvailability } from "@/utils/api";
 import type { AvailabilityResponse, TimeSlot, Package } from "@/types";
@@ -29,8 +29,8 @@ export function Step2Scheduling() {
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [pricePreview, setPricePreview] = useState(0);
-  const [priceLoading, setPriceLoading] = useState(false);
+  const [, setPricePreview] = useState(0);
+  const [, setPriceLoading] = useState(false);
   const [blockers, setBlockers] = useState<
     { id: number; title: string; reason?: string }[]
   >([]);
@@ -98,26 +98,12 @@ export function Step2Scheduling() {
       // ARRAY-ONLY: Always use fresh resource IDs
       setPriceLoading(true);
       try {
-        // Use first space ID for pricing API
-        const firstSpaceId = selectedItems.find((i) => i.type === "space") 
-          ? Number(selectedItems.find((i) => i.type === "space")!.id) 
+        // Use the first explicit space for the deprecated leading-space field.
+        const firstSpaceId = selectedItems.find((i) => i.type === "space")
+          ? Number(selectedItems.find((i) => i.type === "space")!.id)
           : 0;
-        const packageItem = selectedItems.find((i) => i.type === "package") as Package | undefined;
-        
-        // Build item_ids from resolved space IDs (not package IDs)
-        const itemIds: number[] = [];
-        for (const item of selectedItems) {
-          if (item.type === "space") {
-            itemIds.push(Number(item.id));
-          } else if (item.type === "package") {
-            const pkg = item as Package;
-            if (pkg.space_ids && Array.isArray(pkg.space_ids)) {
-              itemIds.push(...pkg.space_ids);
-            } else if (pkg.space_id) {
-              itemIds.push(pkg.space_id);
-            }
-          }
-        }
+        const packageIds = useBookingStore.getState().getAllPackageIds();
+        const itemIds = selectedItems.map((item) => Number(item.id));
         
         const pricing = await fetchPricing({
           space_id: firstSpaceId,
@@ -126,7 +112,7 @@ export function Step2Scheduling() {
           item_ids: itemIds,
           end_time: slot.end,
           extras: [],
-          package_id: packageItem?.id,
+          package_ids: packageIds,
         });
         setPricePreview(pricing.total_price);
       } catch (e) {
@@ -156,12 +142,10 @@ export function Step2Scheduling() {
 
   useEffect(() => {
     if (!resourceMap) {
-      console.log("ARRAY-ONLY: Loading resourceMap...");
       useBookingStore
         .getState()
         .loadResourceMap()
         .then(() => {
-          console.log("ARRAY-ONLY: ResourceMap loaded, ready");
           setIsMapReady(true);
         });
     } else {
@@ -174,7 +158,6 @@ export function Step2Scheduling() {
   // CRITICAL: Re-fetch when EITHER isMapReady OR selectedItems changes
   useEffect(() => {
     if (!isMapReady) {
-      console.log("ARRAY-ONLY: Waiting for resourceMap to be ready...");
       return;
     }
 
@@ -182,8 +165,6 @@ export function Step2Scheduling() {
     // Uses Append/Remove pattern with cumulative group selection
     // Resolve selected items to space IDs (handle packages)
     const freshSpaceIds = getLockedResourceIds();
-    console.log("PHASE 3 CHECK - Sending Group:", freshSpaceIds);
-    console.log("ARRAY-ONLY: Computed freshSpaceIds:", freshSpaceIds);
 
     // FIX BUG 2: Separate spaces from packages
     // - Only add EXPLICITLY selected spaces to spaceIds
@@ -194,11 +175,6 @@ export function Step2Scheduling() {
     const packageIds = selectedItems
       .filter((item) => item.type === "package")
       .map((item) => Number(item.id));
-
-    console.log("DEBUG selectedItems:", selectedItems.map(i => ({id: i.id, type: i.type, title: i.title})));
-    console.log("DEBUG freshSpaceIds:", freshSpaceIds);
-    console.log("DEBUG resourceMap types:", freshSpaceIds.map(id => ({id, type: resourceMap?.[id]?.type})));
-    console.log("DEBUG packageIds (raw):", packageIds);
 
     // Add ALL selected spaces (including package's included spaces)
     // Frontend resolves package's space_ids so backend gets complete list
@@ -231,13 +207,6 @@ export function Step2Scheduling() {
     // Dedupe
     spaceIds = [...new Set(spaceIds)];
 
-    console.log("📍 Resolved spaceIds for availability:", spaceIds, "packageIds:", packageIds);
-
-    // Debug: log what each space has booked
-    if (spaceIds.length > 0) {
-      console.log("DEBUG: Checking availability for spaces:", spaceIds);
-    }
-
     // FIX: Allow API call when packages are selected (even without explicit spaces)
     // Package-only bookings should resolve to their included space
     if (!selectedDate || (spaceIds.length === 0 && packageIds.length === 0)) {
@@ -247,14 +216,6 @@ export function Step2Scheduling() {
       return;
     }
 
-    console.group("AVAILABILITY LOAD");
-    // CRITICAL: Log ACTUAL IDs being sent - this proves full union is sent
-    console.log("ARRAY-ONLY: Sending Group:", spaceIds, "date:", selectedDate);
-    console.log(
-      "DEBUG: selectedItems IDs:",
-      selectedItems.map((i) => i.id),
-    );
-    console.log("DEBUG: fresh lockedResourceIds:", freshSpaceIds);
     setLoading(true);
     setError("");
     setApiResponse(null);
@@ -264,9 +225,6 @@ export function Step2Scheduling() {
     // UPDATED: Now passes packageIds for package-space conflict detection
     fetchMultiAvailability(spaceIds, selectedDate, packageIds)
       .then((res) => {
-        console.log("AVAILABILITY RES:", res);
-        console.log("slots:", res.slots);
-
         // Extract blockers
         if (res.blockers && res.blockers.length > 0) {
           setBlockers(res.blockers);
@@ -282,7 +240,6 @@ export function Step2Scheduling() {
         });
         setSlots(sortedSlots);
         setApiResponse(res);
-        console.groupEnd();
       })
       .catch((e: Error) => {
         console.error("AVAIL ERROR:", e.message);
@@ -502,7 +459,7 @@ export function Step2Scheduling() {
                         )
                       </option>
                     )}
-                    {endTimeOptions.map((slot, i) => {
+                    {endTimeOptions.map((slot) => {
                       const hours = Math.round(
                         (timeToMinutes(slot.end) -
                           timeToMinutes(selectedStartTime)) /

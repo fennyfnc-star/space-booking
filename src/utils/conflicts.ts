@@ -18,12 +18,9 @@ export async function getLockedResourceIds(
 ): Promise<number[]> {
   const locked = new Set<number>();
   for (const item of items) {
-    console.log("🔒 getLockedResourceIds: item", item.id, item.type);
     const footprint = await resolvePhysicalFootprint(item);
-    console.log("🔒 getLockedResourceIds: footprint for", item.id, footprint);
     footprint.forEach((id) => locked.add(id));
   }
-  console.log("🔒 getLockedResourceIds: final locked IDs", Array.from(locked));
   return Array.from(locked);
 }
 
@@ -50,7 +47,7 @@ export function hasConflict(
 /**
  * Generate tooltip for locked item
  */
-export function getTooltip(lockedId: number, candidate: SelectionItem): string {
+export function getTooltip(lockedId: number, _candidate: SelectionItem): string {
   return `Conflicts with current selection (contains Space #${lockedId})`;
 }
 
@@ -69,6 +66,5 @@ export async function fetchConflicts(
     body: JSON.stringify({ item_id: itemId, type }),
   });
   const data = await res.json();
-  console.log("🔒 fetchConflicts:", itemId, type, "->", data.conflict_group_ids);
   return data.conflict_group_ids || [];
 }

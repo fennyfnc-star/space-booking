@@ -10,6 +10,8 @@ use WP_Error;
  */
 class BookingRepository
 {
+	private const ALLOWED_STATUSES = ['pending', 'in_review', 'confirmed', 'cancelled', 'refunded', 'trashed', 'deleted'];
+
 	public function find(int $id): ?array
 	{
 		global $wpdb;
@@ -110,14 +112,47 @@ class BookingRepository
 			$booking['_price_breakdown'] = json_decode($price_breakdown, true);
 			error_log(sprintf('SpaceBooking DEBUG: _sb_price_breakdown found with %d items (SINGLE SOURCE)', count($booking['_price_breakdown'])));
 		}
+		$price_snapshot = $this->get_meta($id, '_sb_price_snapshot_v1');
+		if ($price_snapshot) {
+			$booking['_price_snapshot_v1'] = json_decode($price_snapshot, true);
+		}
+
+		// Expose package inclusions for frontend confirmation rendering.
+		$package_inclusions_raw = $this->get_meta($id, '_sb_package_inclusions');
+		$booking['_package_inclusions'] = [];
+		if (!empty($package_inclusions_raw)) {
+			$decoded_inclusions = json_decode($package_inclusions_raw, true);
+			if (is_array($decoded_inclusions)) {
+				$booking['_package_inclusions'] = array_values(array_filter(array_map(static function ($inc) {
+					if (!is_array($inc)) {
+						return null;
+					}
+					$type = sanitize_text_field((string) ($inc['type'] ?? ''));
+					$title = sanitize_text_field((string) ($inc['title'] ?? ''));
+					$label = sanitize_text_field((string) ($inc['label'] ?? ''));
+					if ($type === '' || $title === '') {
+						return null;
+					}
+					$normalized = [
+						'type' => $type,
+						'title' => $title,
+					];
+					if ($label !== '') {
+						$normalized['label'] = $label;
+					}
+					return $normalized;
+				}, $decoded_inclusions)));
+			}
+		}
 
 		// DEBUG: Log what's being returned (updated - removed display_extras)
 		error_log(sprintf(
-			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _price_breakdown=%s',
+			'SpaceBooking DEBUG findEnriched(#%d) RETURN: extras=%s, _extras=%s, _price_breakdown=%s, _package_inclusions=%s',
 			$id,
 			json_encode($booking['extras'] ?? []),
 			json_encode($booking['_extras'] ?? []),
-			json_encode($booking['_price_breakdown'] ?? [])
+			json_encode($booking['_price_breakdown'] ?? []),
+			json_encode($booking['_package_inclusions'] ?? [])
 		));
 
 		return $booking;
@@ -283,11 +318,19 @@ class BookingRepository
 		$space_ids_params = $space_ids;
 
 		return $wpdb->get_results($wpdb->prepare("
-			SELECT start_time as start, end_time as end
-            FROM {$wpdb->prefix}sb_bookings 
-            WHERE space_id IN ({$space_ids_placeholder}) AND booking_date = %s AND status IN ('confirmed', 'in_review', 'paid')
-            ORDER BY start_time",
-			...array_merge($space_ids_params, [$date])), ARRAY_A) ?: [];
+			SELECT DISTINCT b.start_time as start, b.end_time as end
+			FROM {$wpdb->prefix}sb_bookings b
+			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
+			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
+			WHERE (
+				b.space_id IN ({$space_ids_placeholder})
+				OR bs.space_id IN ({$space_ids_placeholder})
+				OR bp.space_id IN ({$space_ids_placeholder})
+			)
+			AND b.booking_date = %s
+			AND b.status IN ('confirmed', 'in_review', 'paid')
+			ORDER BY b.start_time",
+			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
 	}
 
 	/**
@@ -315,14 +358,15 @@ class BookingRepository
 			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
 			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
 			WHERE (
-				bs.space_id IN ({$space_ids_placeholder})
+				b.space_id IN ({$space_ids_placeholder})
+				OR bs.space_id IN ({$space_ids_placeholder})
 				OR bp.space_id IN ({$space_ids_placeholder})
 			)
 			AND b.booking_date = %s 
 			AND b.status = 'pending'
 			AND b.expired_at > NOW()
 			ORDER BY b.start_time",
-			...array_merge($space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
+			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date])), ARRAY_A) ?: [];
 
 		// Normalize time strings
 		foreach ($results as &$row) {
@@ -374,7 +418,8 @@ class BookingRepository
 			LEFT JOIN {$wpdb->prefix}sb_booking_spaces bs ON b.id = bs.booking_id
 			LEFT JOIN {$wpdb->prefix}sb_booking_packages bp ON b.id = bp.booking_id
 			WHERE (
-				bs.space_id IN ({$space_ids_placeholder})
+				b.space_id IN ({$space_ids_placeholder})
+				OR bs.space_id IN ({$space_ids_placeholder})
 				OR bp.space_id IN ({$space_ids_placeholder})
 			)
 			AND b.booking_date = %s
@@ -382,7 +427,7 @@ class BookingRepository
 				b.status IN ('confirmed', 'in_review', 'paid')
 				OR (b.status = 'pending' AND b.expired_at > NOW())
 			)",
-			...array_merge($space_ids_params, $space_ids_params, [$date]));
+			...array_merge($space_ids_params, $space_ids_params, $space_ids_params, [$date]));
 
 		error_log('SB_DEBUG: get_blocking_intervals booking_id query: ' . str_replace("\n", ' ', $booking_id_query));
 
@@ -489,9 +534,13 @@ class BookingRepository
 		return $extras ?: [];
 	}
 
-	public function update_status(int $id, string $status): bool
+	public function update_status(int $id, string $status, array $extra_data = []): bool
 	{
 		global $wpdb;
+
+		if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+			return false;
+		}
 
 		$result = $wpdb->update(
 			$wpdb->prefix . 'sb_bookings',
@@ -501,7 +550,51 @@ class BookingRepository
 			['%d']
 		);
 
-		return false !== $result;
+		if (false === $result) {
+			return false;
+		}
+
+		if (!empty($extra_data['admin_feedback'])) {
+			$this->save_meta($id, 'admin_feedback', sanitize_textarea_field((string) $extra_data['admin_feedback']));
+		}
+
+		return true;
+	}
+
+	public function move_to_trash(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking || $booking['status'] === 'trashed') {
+			return false;
+		}
+
+		$updated = $this->update_status($booking_id, 'trashed');
+		if ($updated) {
+			$this->append_audit_log($booking_id, 'booking_trashed', $actor_user_id, [
+				'from_status' => (string) $booking['status'],
+				'to_status' => 'trashed',
+			]);
+		}
+
+		return $updated;
+	}
+
+	public function restore_from_trash(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking || $booking['status'] !== 'trashed') {
+			return false;
+		}
+
+		$updated = $this->update_status($booking_id, 'pending');
+		if ($updated) {
+			$this->append_audit_log($booking_id, 'booking_restored', $actor_user_id, [
+				'from_status' => 'trashed',
+				'to_status' => 'pending',
+			]);
+		}
+
+		return $updated;
 	}
 
 	private function save_extras(int $booking_id, array $extras): void
@@ -606,6 +699,22 @@ class BookingRepository
 	}
 
 	/**
+	 * Persist the WooCommerce order reference for a booking.
+	 */
+	public function link_order(int $booking_id, int $order_id): void
+	{
+		global $wpdb;
+
+		$wpdb->update(
+			$wpdb->prefix . 'sb_bookings',
+			['order_id' => $order_id],
+			['id' => $booking_id],
+			['%d'],
+			['%d']
+		);
+	}
+
+	/**
 	 * NEW: Get all spaces linked to a booking.
 	 */
 	public function get_linked_spaces(int $booking_id): array
@@ -681,5 +790,128 @@ class BookingRepository
 		);
 
 		return false !== $result;
+	}
+
+	public function delete_permanently(int $booking_id, int $actor_user_id): bool
+	{
+		$booking = $this->find($booking_id);
+		if (!$booking) {
+			return false;
+		}
+
+		$this->append_audit_log($booking_id, 'booking_delete_permanently', $actor_user_id, [
+			'from_status' => (string) ($booking['status'] ?? ''),
+		]);
+
+		$deleted = $this->delete($booking_id);
+		if ($deleted) {
+			error_log(sprintf('SpaceBooking audit: booking #%d permanently deleted by user #%d', $booking_id, $actor_user_id));
+		}
+
+		return $deleted;
+	}
+
+	public function get_customer_bookings_by_email(string $email, int $limit = 50): array
+	{
+		global $wpdb;
+
+		$email = strtolower(sanitize_email($email));
+		if (!is_email($email)) {
+			return [];
+		}
+
+		$limit = max(1, min(100, $limit));
+		$status_allowlist = ['pending', 'in_review', 'confirmed', 'cancelled', 'refunded'];
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, space_id, booking_date, start_time, end_time, total_price, status
+				 FROM {$wpdb->prefix}sb_bookings
+				 WHERE LOWER(customer_email) = %s
+				 AND status IN ('pending','in_review','confirmed','cancelled','refunded')
+				 ORDER BY booking_date DESC, start_time DESC
+				 LIMIT %d",
+				$email,
+				$limit
+			),
+			ARRAY_A
+		) ?: [];
+
+		$results = [];
+		foreach ($rows as $row) {
+			$status = (string) ($row['status'] ?? '');
+			if (!in_array($status, $status_allowlist, true)) {
+				continue;
+			}
+
+			$space_id = (int) ($row['space_id'] ?? 0);
+			$thumbnail = '';
+			if ($space_id > 0 && has_post_thumbnail($space_id)) {
+				$thumbnail = (string) get_the_post_thumbnail_url($space_id, 'medium');
+			}
+
+			$results[] = [
+				'id' => (int) $row['id'],
+				'space_name' => $space_id > 0 ? get_the_title($space_id) : __('Unknown Space', 'space-booking'),
+				'booking_date' => sanitize_text_field((string) $row['booking_date']),
+				'start_time' => sanitize_text_field((string) $row['start_time']),
+				'end_time' => sanitize_text_field((string) $row['end_time']),
+				'total_price' => (float) $row['total_price'],
+				'status' => $status,
+				'thumbnail' => esc_url_raw($thumbnail),
+				'extras' => array_map(static function (array $extra): array {
+					return [
+						'extra_name' => sanitize_text_field((string) ($extra['title'] ?? 'Extra')),
+						'quantity' => (int) ($extra['quantity'] ?? 1),
+					];
+				}, $this->get_extras((int) $row['id'])),
+			];
+		}
+
+		return $results;
+	}
+
+	private function append_audit_log(int $booking_id, string $event, int $actor_user_id, array $context = []): void
+	{
+		$existing_json = $this->get_meta($booking_id, '_sb_audit_log');
+		$entries = [];
+		if (is_string($existing_json) && $existing_json !== '') {
+			$decoded = json_decode($existing_json, true);
+			if (is_array($decoded)) {
+				$entries = $decoded;
+			}
+		}
+
+		$entries[] = [
+			'event' => sanitize_text_field($event),
+			'actor_user_id' => $actor_user_id,
+			'timestamp_gmt' => gmdate('Y-m-d H:i:s'),
+			'context' => $context,
+		];
+
+		$this->save_meta($booking_id, '_sb_audit_log', wp_json_encode($entries));
+		error_log(sprintf('SpaceBooking audit: %s booking #%d by user #%d', $event, $booking_id, $actor_user_id));
+	}
+
+	public function log_audit_event(int $booking_id, string $event, int $actor_user_id, array $context = []): void
+	{
+		$this->append_audit_log($booking_id, $event, $actor_user_id, $context);
+	}
+
+	public function get_audit_log(int $booking_id): array
+	{
+		$existing_json = $this->get_meta($booking_id, '_sb_audit_log');
+		if (!is_string($existing_json) || $existing_json === '') {
+			return [];
+		}
+
+		$decoded = json_decode($existing_json, true);
+		if (!is_array($decoded)) {
+			return [];
+		}
+
+		return array_values(array_filter($decoded, static function ($entry) {
+			return is_array($entry) && !empty($entry['event']) && !empty($entry['timestamp_gmt']);
+		}));
 	}
 }

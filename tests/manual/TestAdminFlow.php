@@ -7,21 +7,21 @@
  * 1. Status Lock: Verify 'in_review' status blocks calendar like confirmed
  * 2. Status Transition: Cancelled order frees up space_ids immediately
  *
- * Run: http://your-site/wp-content/plugins/space-booking/tests/TestAdminFlow.php
+ * Run: http://your-site/wp-content/plugins/space-booking/tests/manual/TestAdminFlow.php
  */
 
 // Bootstrap WordPress
-$abspath = dirname(__DIR__, 4);
+$abspath = dirname(__DIR__, 5);
 if (file_exists($abspath . '/wp-load.php')) {
     define('ABSPATH', $abspath . '/');
 } else {
-    define('ABSPATH', dirname(__DIR__, 3) . '/');
+    define('ABSPATH', dirname(__DIR__, 5) . '/');
 }
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
-require_once dirname(__FILE__) . '/../space-booking.php';
-require_once dirname(__FILE__) . '/../includes/Plugin.php';
+require_once dirname(__FILE__) . '/../../space-booking.php';
+require_once dirname(__FILE__) . '/../../includes/Plugin.php';
 
 \spaceBooking\Plugin::instance()->boot();
 

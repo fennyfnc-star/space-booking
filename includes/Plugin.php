@@ -111,6 +111,9 @@ final class Plugin
         }
 
         if (has_shortcode($post->post_content, 'space_booking')) {
+            $recaptcha_service = new \SpaceBooking\Services\RecaptchaService();
+            $recaptcha_config = $recaptcha_service->get_config();
+
             $asset_file = SB_DIR . 'assets/js/booking-app.asset.php';
             $asset = file_exists($asset_file)
                 ? require $asset_file
@@ -137,12 +140,28 @@ final class Plugin
                 [
                     'apiBase' => rest_url('space-booking/v1'),
                     'nonce' => wp_create_nonce('wp_rest'),
+                    'checkoutUrl' => wc_get_checkout_url(),
                     'currency' => get_option('sb_currency', 'USD'),
                     'symbol' => \SpaceBooking\Services\CurrencyService::get_symbol(),
                     'dateFormat' => get_option('date_format', 'Y-m-d'),
                     'bookingPolicy' => get_option('sb_booking_policy', ''),
+                    'recaptcha' => [
+                        'enabled' => (bool) ($recaptcha_config['enabled'] ?? true),
+                        'version' => (string) ($recaptcha_config['version'] ?? 'v3'),
+                        'siteKey' => (string) ($recaptcha_config['site_key'] ?? ''),
+                        'hasKeys' => (bool) ($recaptcha_config['has_keys'] ?? false),
+                    ],
                 ]
             );
+
+            if (!empty($recaptcha_config['site_key'])) {
+                $site_key = rawurlencode((string) $recaptcha_config['site_key']);
+                $version = (string) ($recaptcha_config['version'] ?? 'v3');
+                $src = $version === 'v2'
+                    ? 'https://www.google.com/recaptcha/api.js?render=explicit'
+                    : 'https://www.google.com/recaptcha/api.js?render=' . $site_key;
+                wp_enqueue_script('sb-recaptcha', $src, [], null, true);
+            }
 
             add_filter(
                 'script_loader_tag',
@@ -277,6 +296,28 @@ final class Plugin
 
         // Customer Fields AJAX
         add_action('wp_ajax_sb_save_customer_fields', [$this, 'ajax_save_customer_fields']);
+        add_action('admin_notices', [$this, 'recaptcha_admin_notice']);
+    }
+
+    public function recaptcha_admin_notice(): void
+    {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || strpos((string) $screen->id, 'space-booking') === false) {
+            return;
+        }
+
+        $recaptcha = new \SpaceBooking\Services\RecaptchaService();
+        $config = $recaptcha->get_config();
+        if (!empty($config['has_keys'])) {
+            return;
+        }
+
+        echo '<div class="notice notice-warning"><p>';
+        echo esc_html__('Space Booking: WooCommerce reCAPTCHA keys were not detected. Bookings will still submit, but they are unprotected until keys are configured.', 'space-booking');
+        echo '</p></div>';
     }
 
     public function ajax_save_customer_fields(): void

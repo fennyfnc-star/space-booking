@@ -12,21 +12,21 @@
  * The correct approach is to add the global resource as a SPACE_ID
  * in the bookings table (virtual resource pattern).
  *
- * Run: http://your-site/wp-content/plugins/space-booking/tests/TestGlobalResources.php
+ * Run: http://your-site/wp-content/plugins/space-booking/tests/manual/TestGlobalResources.php
  */
 
 // Bootstrap WordPress
-$abspath = dirname(__DIR__, 4);
+$abspath = dirname(__DIR__, 5);
 if (file_exists($abspath . '/wp-load.php')) {
     define('ABSPATH', $abspath . '/');
 } else {
-    define('ABSPATH', dirname(__DIR__, 3) . '/');
+    define('ABSPATH', dirname(__DIR__, 5) . '/');
 }
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
-require_once dirname(__FILE__) . '/../space-booking.php';
-require_once dirname(__FILE__) . '/../includes/Plugin.php';
+require_once dirname(__FILE__) . '/../../space-booking.php';
+require_once dirname(__FILE__) . '/../../includes/Plugin.php';
 
 \spaceBooking\Plugin::instance()->boot();
 

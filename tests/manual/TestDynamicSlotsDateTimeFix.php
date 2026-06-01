@@ -13,7 +13,7 @@ require_once __DIR__ . '/bootstrap.php';
 echo "=== DateTime Namespace Fix Test ===\n\n";
 
 // Test 1: Verify the trait file has the correct \DateTime reference
-$trait_file = __DIR__ . '/../includes/Services/Traits/HasDynamicSlots.php';
+$trait_file = __DIR__ . '/../../includes/Services/Traits/HasDynamicSlots.php';
 $content = file_get_contents($trait_file);
 
 $has_correct_reference = strpos($content, 'new \DateTime($date)') !== false;

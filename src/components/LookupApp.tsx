@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { sendMagicLink, fetchCustomerBookings } from "@/utils/api";
 import type { CustomerBooking } from "@/types";
 
@@ -10,14 +10,12 @@ export function LookupApp() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [bookings, setBookings] = useState<CustomerBooking[]>([]);
-  const [token, setToken] = useState("");
 
   // Auto-detect token from URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("sb_token");
     if (t) {
-      setToken(t);
       loadBookings(t);
     }
   }, []);
@@ -36,7 +34,7 @@ export function LookupApp() {
       .finally(() => setLoading(false));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");

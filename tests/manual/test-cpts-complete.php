@@ -4,7 +4,7 @@
  * COMPLETE CPT TEST SUITE - Space Booking Plugin
  * Save as tests/test-cpts-complete.php in plugin root, run: cd c:\xampp\htdocs\kukoolala && php tests/test-cpts-complete.php
  */
-require_once dirname(__DIR__, 4) . '/wp-load.php';
+require_once dirname(__DIR__, 5) . '/wp-load.php';
 
 echo "=== SPACE BOOKING CPT TEST SUITE ===\n\n";
 

@@ -1,15 +1,15 @@
-import React, { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import type { SelectionItem } from "@/types";
-import { fetchSpace, fetchPackages, checkCartHasBooking } from "@/utils/api";
+import { fetchSpace, fetchPackages, checkCartHasBooking, clearCartBooking } from "@/utils/api";
 import { StepProgress } from "./shared/StepProgress";
 import { Step1Selection } from "./steps/Step1Selection";
 import { Step2Scheduling } from "./steps/Step2Scheduling";
 import { Step3Addons } from "./steps/Step3Addons";
-// Step4Details removed - customer details not required
-import { Step5Terms } from "./steps/Step5Terms";
-import { Step6Payment } from "./steps/Step6Payment";
-import { Step7Confirmation } from "./steps/Step7Confirmation";
+import { Step4PackageQuestions } from "./steps/Step4PackageQuestions";
+import { Step4Terms } from "./steps/Step4Terms";
+import { Step5Payment } from "./steps/Step5Payment";
+import { Step6Confirmation } from "./steps/Step6Confirmation";
 
 interface Props {
   preSpaceId?: number;
@@ -17,9 +17,12 @@ interface Props {
 }
 
 export function BookingApp({ preSpaceId, prePackageId }: Props) {
-  const { setStep, bookingId, loadBookingStatus, loadResourceMap } =
+  const { setStep, bookingId, loadBookingStatus, loadResourceMap, hasPackageQuestionsStep } =
     useBookingStore((state) => state);
   const currentStep = useBookingStore((s) => s.currentStep);
+  const [isCartGateLoading, setIsCartGateLoading] = useState(true);
+  const [hasCartBookingGate, setHasCartBookingGate] = useState(false);
+  const [isClearingCart, setIsClearingCart] = useState(false);
 
   // Direct booking confirmation from query params or data attrs (Step 1/1)
   useEffect(() => {
@@ -36,7 +39,7 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
     if (directBookingId) {
       const id = parseInt(directBookingId);
       if (!isNaN(id)) {
-        useBookingStore.setState({ bookingId: id, currentStep: 6 });
+        useBookingStore.setState({ bookingId: id, currentStep: 7 });
         loadBookingStatus(id);
         return; // Skip other init logic
       }
@@ -46,7 +49,8 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
   // Cart/session check + cleanup
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("step") === "6" && bookingId) {
+    if (params.get("step") === "7" && bookingId) {
+      setIsCartGateLoading(false);
       return; // Direct confirmation
     }
 
@@ -54,14 +58,13 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
       try {
         const res = await checkCartHasBooking();
         if (res.hasCartBooking) {
-          window.location.href = "/checkout/";
+          setHasCartBookingGate(true);
           return;
-        } else {
-          // Cart empty, no persisted state to clear
         }
       } catch (e) {
-        console.error("Cart check on app init failed:", e);
-        // Assume empty on error, no persisted state to clear
+        // Assume empty on error.
+      } finally {
+        setIsCartGateLoading(false);
       }
     };
 
@@ -101,17 +104,72 @@ export function BookingApp({ preSpaceId, prePackageId }: Props) {
     }
   }, [preSpaceId, prePackageId]);
 
+  const checkoutUrl = window.sbConfig.checkoutUrl || "/checkout/";
+
+  const handleGoToCheckout = () => {
+    window.location.href = checkoutUrl;
+  };
+
+  const handleClearCartBooking = async () => {
+    setIsClearingCart(true);
+    try {
+      await clearCartBooking();
+      setHasCartBookingGate(false);
+    } catch {
+      // Keep gate shown if clear fails.
+    } finally {
+      setIsClearingCart(false);
+    }
+  };
+
+  if (isCartGateLoading) {
+    return (
+      <div className="sb-app">
+        <div className="sb-step-container">
+          <div className="sb-loading">Checking existing cart booking...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (hasCartBookingGate) {
+    return (
+      <div className="sb-app">
+        <div className="sb-step-container">
+          <h2 className="sb-step__title">Existing Booking In Cart</h2>
+          <p className="sb-empty">
+            You already have a booking in your cart. Continue checkout or remove it before starting a new booking.
+          </p>
+          <div className="sb-step__actions">
+            <button
+              type="button"
+              className="sb-btn sb-btn--danger"
+              onClick={handleClearCartBooking}
+              disabled={isClearingCart}
+            >
+              {isClearingCart ? "Removing..." : "Remove all cart"}
+            </button>
+            <button type="button" className="sb-btn sb-btn--primary" onClick={handleGoToCheckout}>
+              Go to checkout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="sb-app">
-      <StepProgress currentStep={currentStep} />
+      <StepProgress currentStep={currentStep} hasPackageQuestionsStep={hasPackageQuestionsStep()} />
 
       <div className="sb-step-container">
         {currentStep === 1 && <Step1Selection />}
         {currentStep === 2 && <Step2Scheduling />}
         {currentStep === 3 && <Step3Addons />}
-        {currentStep === 4 && <Step5Terms />}
-        {currentStep === 5 && <Step6Payment />}
-        {currentStep === 6 && <Step7Confirmation />}
+        {currentStep === 4 && <Step4PackageQuestions />}
+        {currentStep === 5 && <Step4Terms />}
+        {currentStep === 6 && <Step5Payment />}
+        {currentStep === 7 && <Step6Confirmation />}
       </div>
     </div>
   );

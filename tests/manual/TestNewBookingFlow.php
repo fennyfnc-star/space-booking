@@ -18,7 +18,7 @@ echo "=== Testing New Booking Flow ===\n\n";
 
 // Setup - ensure schema exists
 echo "1. Setting up schema...\n";
-require_once dirname(__DIR__, 1) . '/includes/Migrations/CreateNewSchema.php';
+require_once dirname(__DIR__, 2) . '/includes/Migrations/CreateNewSchema.php';
 $schema = new \SpaceBooking\Migrations\CreateNewSchema();
 $schema->run();
 echo "   Schema created/verified.\n\n";
@@ -137,7 +137,7 @@ if ($enriched) {
     echo "   Status: {$enriched['status']}\n";
     echo "   Primary Space: {$enriched['space_id']}\n";
     echo '   Selected items: ' . count($enriched['_selected_items'] ?? []) . "\n";
-    echo '   Extras: ' . count($enriched['_extras'] ?? []) . "\n";
+    echo '   Extras: ' . count($enriched['extras'] ?? []) . "\n";
 }
 
 echo "\n=== Test Complete ===\n";

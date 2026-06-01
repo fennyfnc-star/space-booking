@@ -115,9 +115,6 @@ final class AdminMenu
 			'sb_buffer_pre_minutes' => 'absint',
 			'sb_buffer_post_minutes' => 'absint',
 			'sb_currency' => 'sanitize_text_field',
-			'sb_stripe_publishable_key' => 'sanitize_text_field',
-			'sb_stripe_secret_key' => 'sanitize_text_field',
-			'sb_stripe_webhook_secret' => 'sanitize_text_field',
 			'sb_admin_email' => 'sanitize_email',
 			'sb_email_from_name' => 'sanitize_text_field',
 			'sb_magic_link_ttl_minutes' => 'absint',
@@ -251,6 +248,8 @@ final class AdminMenu
 
 	public function page_settings(): void
 	{
+		$recaptcha_service = new \SpaceBooking\Services\RecaptchaService();
+		$recaptcha_diag = $recaptcha_service->get_diagnostics();
 ?>
 <div class="wrap">
     <h1><?php esc_html_e('Space Booking Settings', 'space-booking'); ?></h1>
@@ -269,13 +268,33 @@ final class AdminMenu
             <?php \SpaceBooking\Services\CurrencyService::render_select('sb_currency'); ?><p class="description">
                 <?php esc_html_e('Select your currency. Prices will be displayed with the appropriate symbol.', 'space-booking'); ?>
             </p>
-            <?php $this->settings_row('sb_stripe_publishable_key', __('Stripe Publishable Key', 'space-booking'), 'text'); ?>
-            <?php $this->settings_row('sb_stripe_secret_key', __('Stripe Secret Key', 'space-booking'), 'password'); ?>
-            <?php $this->settings_row('sb_stripe_webhook_secret', __('Stripe Webhook Secret', 'space-booking'), 'password'); ?>
             <?php $this->settings_row('sb_admin_email', __('Admin Notification Email', 'space-booking'), 'email'); ?>
             <?php $this->settings_row('sb_email_from_name', __('Email From Name', 'space-booking'), 'text'); ?>
             <?php $this->settings_row('sb_magic_link_ttl_minutes', __('Magic Link TTL (minutes)', 'space-booking'), 'number'); ?>
             <?php $this->policy_editor_row('sb_booking_policy', __('Booking Policy / Terms Agreement', 'space-booking')); ?>
+            <tr>
+                <th><?php esc_html_e('reCAPTCHA (WooCommerce)', 'space-booking'); ?></th>
+                <td>
+                    <p>
+                        <?php esc_html_e('Booking reCAPTCHA inherits keys from WooCommerce-compatible captcha settings. No separate keys are stored by Space Booking.', 'space-booking'); ?>
+                    </p>
+                    <ul style="margin:8px 0 0 16px; list-style:disc;">
+                        <li><?php echo esc_html(sprintf('Key detected: %s', $recaptcha_diag['has_keys'] ? 'Yes' : 'No')); ?>
+                        </li>
+                        <li><?php echo esc_html(sprintf('Version: %s', strtoupper((string) $recaptcha_diag['version']))); ?>
+                        </li>
+                        <li><?php echo esc_html(sprintf('Source: %s', (string) $recaptcha_diag['source'])); ?>
+                        </li>
+                        <li><?php echo esc_html(sprintf('Verification endpoint reachable: %s', $recaptcha_diag['endpoint_ok'] ? 'Yes' : 'No')); ?>
+                            <?php if (!$recaptcha_diag['endpoint_ok'] && !empty($recaptcha_diag['endpoint_reason'])): ?>
+                            (<?php echo esc_html((string) $recaptcha_diag['endpoint_reason']); ?>)
+                            <?php endif; ?>
+                        </li>
+                        <li><?php echo esc_html(sprintf('Last failure: %s', $recaptcha_diag['last_failure'] !== '' ? (string) $recaptcha_diag['last_failure'] : 'None')); ?>
+                        </li>
+                    </ul>
+                </td>
+            </tr>
         </table>
         <?php submit_button(); ?>
     </form>

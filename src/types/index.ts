@@ -53,6 +53,16 @@ export interface Package {
   extra_ids: number[];
   space_ids?: number[]; // Multi-spaces for packages
   physicalSpaceIds?: number[]; // Cached footprint
+  theme_meta_fields?: PackageThemeMetaField[];
+}
+
+export interface PackageThemeMetaField {
+  label: string;
+  key: string;
+  type: "text" | "textarea" | "number" | "radio" | "checkbox" | "select";
+  required?: boolean;
+  allow_others?: boolean;
+  options?: string[];
 }
 
 export interface Extra {
@@ -168,6 +178,8 @@ declare module "@/utils/api" {
     customer_phone?: string;
     notes?: string;
     marketing_source?: string;
+    website_url?: string;
+    form_started_at?: number;
     extras?: SelectedExtra[];
   }
 }
@@ -208,6 +220,19 @@ declare global {
       symbol: string;
       dateFormat: string;
       bookingPolicy: string;
+      recaptcha?: {
+        enabled: boolean;
+        version: "v2" | "v3";
+        siteKey: string;
+        hasKeys: boolean;
+      };
+    };
+    grecaptcha?: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+      render: (container: string | HTMLElement, params: Record<string, unknown>) => number;
+      getResponse: (widgetId?: number) => string;
+      reset: (widgetId?: number) => void;
     };
   }
 }
@@ -222,7 +247,12 @@ export interface SelectedExtra {
 
 // ── Booking wizard step state ─────────────────────────────────────────────────
 
-export type BookingStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type BookingStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export interface PackageQuestionAnswerValue {
+  value: string | number | string[];
+  others_text?: string;
+}
 
 export interface CustomField {
   key: string;

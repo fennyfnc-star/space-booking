@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 
 interface SelectedItem {
@@ -9,9 +9,21 @@ interface SelectedItem {
 
 interface ExtraDetail {
   extra_id: number;
-  extra_name: string;
+  extra_name?: string;
+  title?: string;
   quantity: number;
   unit_price: number;
+}
+
+interface PackageInclusion {
+  type: string;
+  title: string;
+  label?: string;
+}
+
+interface ExtraCatalogItem {
+  id: number;
+  title: string;
 }
 
 interface PriceBreakdownItem {
@@ -32,6 +44,7 @@ interface BookingData {
   _space_titles?: string[];
   _selected_items?: SelectedItem[];
   package_id?: number;
+  package_ids?: number[];
   customer_name: string;
   customer_email: string;
   customer_phone?: string;
@@ -53,14 +66,18 @@ interface BookingData {
     | Array<{ extra_id: number; quantity: number; title?: string }>;
   _extras_details?: ExtraDetail[];
   _price_breakdown?: PriceBreakdownItem[];
+  _package_inclusions?: Array<{ type: string; title: string; label?: string }>;
+  _meta_data?: Record<string, string>;
   notes?: string;
 }
 
-export function Step7Confirmation() {
+export function Step6Confirmation() {
   const bookingStatus = useBookingStore((s) => s.bookingStatus);
   const bookingId = useBookingStore((s) => s.bookingId);
   const reset = useBookingStore((s) => s.reset);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
+  const [packageData, setPackageData] = useState<any>(null); // Store for package details if booking includes a package
+  const [allExtras, setAllExtras] = useState<ExtraCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -72,9 +89,42 @@ export function Step7Confirmation() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
         })
-        .then((data) => {
-          console.log("BOOKING DATA: ", data);
+        .then(async (data) => {
           setBookingData(data);
+
+          // If booking includes package(s), fetch first package details for display fallback.
+          const packageIds =
+            Array.isArray(data.package_ids) && data.package_ids.length > 0
+              ? data.package_ids
+              : data.package_id
+                ? [data.package_id]
+                : [];
+          if (packageIds.length > 0) {
+            try {
+              const packageRes = await fetch(`${window.sbConfig.apiBase}/packages`);
+              if (packageRes.ok) {
+                const allPackages = await packageRes.json();
+                const packageDetails = allPackages.find(
+                  (pkg: any) => pkg.id === Number(packageIds[0]),
+                );
+                setPackageData(packageDetails);
+              }
+            } catch (err) {
+              console.error("Failed to fetch package details:", err);
+            }
+          }
+
+          // Load all extras so package-included extras can show real names.
+          try {
+            const extrasRes = await fetch(`${window.sbConfig.apiBase}/extras/all`);
+            if (extrasRes.ok) {
+              const extrasData = await extrasRes.json();
+              setAllExtras(Array.isArray(extrasData) ? extrasData : []);
+            }
+          } catch (err) {
+            console.error("Failed to fetch extras catalog:", err);
+          }
+
           setLoading(false);
         })
         .catch((err) => {
@@ -89,7 +139,7 @@ export function Step7Confirmation() {
 
   if (loading) {
     return (
-      <div className="sb-step sb-step-7">
+      <div className="sb-step sb-step-6">
         <p>Loading booking details...</p>
       </div>
     );
@@ -97,7 +147,7 @@ export function Step7Confirmation() {
 
   if (error || !bookingData) {
     return (
-      <div className="sb-step sb-step-7">
+      <div className="sb-step sb-step-6">
         <p className="sb-error">{error || "Booking details not available."}</p>
         <button
           className="sb-btn sb-btn--primary"
@@ -122,8 +172,199 @@ export function Step7Confirmation() {
   const getExtraTitle = (extraId: number, extra_name?: string) =>
     extra_name || `Extra #${extraId}`;
 
+  const getExtraTitleById = (extraId: number): string => {
+    const fromBooking = bookingData._extras_details?.find(
+      (extra: ExtraDetail) => Number(extra.extra_id) === Number(extraId),
+    );
+    if (fromBooking?.extra_name) return fromBooking.extra_name;
+    if (fromBooking?.title) return fromBooking.title;
+
+    const fromCatalog = allExtras.find(
+      (extra: ExtraCatalogItem) => Number(extra.id) === Number(extraId),
+    );
+    if (fromCatalog?.title) return fromCatalog.title;
+
+    return `Extra #${extraId}`;
+  };
+
+  const getPackageSpaceIds = (): number[] => {
+    if (!packageData) {
+      return [];
+    }
+
+    if (Array.isArray(packageData.space_ids) && packageData.space_ids.length > 0) {
+      return packageData.space_ids
+        .map((id: number) => Number(id))
+        .filter((id: number) => id > 0);
+    }
+
+    if (packageData.space_id) {
+      return [Number(packageData.space_id)];
+    }
+
+    return [];
+  };
+
+  const getSpaceSummaryLabel = (): string => {
+    const selectedSpaceItems = (bookingData._selected_items ?? []).filter(
+      (item) => item.type === "sb_space",
+    );
+    const selectedSpaceIds = new Set(
+      selectedSpaceItems.map((item) => Number(item.id)),
+    );
+    const packageSpaceIds = getPackageSpaceIds();
+    const includedSpaceTitlesFromMeta = (bookingData._package_inclusions ?? [])
+      .filter((inc: PackageInclusion) => inc.type === "sb_space" && !!inc.title)
+      .map((inc: PackageInclusion) => inc.title.trim())
+      .filter((title: string) => title.length > 0);
+    const labels = selectedSpaceItems.map((item) => {
+      const isPackageIncluded = packageSpaceIds.includes(Number(item.id));
+      return `${item.title}${isPackageIncluded ? " (Package)" : ""}`;
+    });
+
+    packageSpaceIds.forEach((spaceId, index) => {
+      if (selectedSpaceIds.has(spaceId)) {
+        return;
+      }
+
+      const title =
+        index === 0
+          ? packageData?.space_name || `Space #${spaceId}`
+          : `Space #${spaceId}`;
+      labels.push(`${title} (Package)`);
+    });
+
+    includedSpaceTitlesFromMeta.forEach((title) => {
+      const exists = labels.some(
+        (label) =>
+          label.toLowerCase() === title.toLowerCase() ||
+          label.toLowerCase() === `${title.toLowerCase()} (package)`,
+      );
+      if (!exists) {
+        labels.push(`${title} (Package)`);
+      }
+    });
+
+    if (labels.length > 0) {
+      return labels.join(", ");
+    }
+
+    if (packageSpaceIds.length > 0) {
+      return packageSpaceIds
+        .map((spaceId, index) => {
+          const title = index === 0
+            ? packageData?.space_name || `Space #${spaceId}`
+            : `Space #${spaceId}`;
+          return `${title} (Package)`;
+        })
+        .join(", ");
+    }
+
+    return bookingData._space_title || `Space #${bookingData.space_id}`;
+  };
+
+  const getPackageIncludedExtras = (): Array<{
+    extra_id?: number;
+    title: string;
+  }> => {
+    const byTitle = new Set<string>();
+    const included: Array<{ extra_id?: number; title: string }> = [];
+
+    const metaInclusions = (bookingData._package_inclusions ?? []).filter(
+      (inc: PackageInclusion) => inc.type === "sb_extra" && !!inc.title,
+    );
+
+    metaInclusions.forEach((inc: PackageInclusion) => {
+      const title = inc.title.trim();
+      if (!title || byTitle.has(title.toLowerCase())) return;
+      byTitle.add(title.toLowerCase());
+      included.push({ title });
+    });
+
+    if (packageData?.extra_ids && Array.isArray(packageData.extra_ids)) {
+      packageData.extra_ids.forEach((extraId: number) => {
+        const title = getExtraTitleById(extraId);
+        const key = title.toLowerCase();
+        if (byTitle.has(key)) return;
+        byTitle.add(key);
+        included.push({ extra_id: extraId, title });
+      });
+    }
+
+    return included;
+  };
+
+  const getExtrasDisplayItems = (): Array<{
+    key: string;
+    title: string;
+    quantity?: number;
+    unit_price?: number;
+    isPackage: boolean;
+  }> => {
+    const regularExtras =
+      bookingData._extras_details?.map((e: ExtraDetail) => ({
+        key: `regular-${e.extra_id}`,
+        title: e.extra_name || e.title || getExtraTitle(e.extra_id),
+        quantity: e.quantity,
+        unit_price: e.unit_price,
+        isPackage: false,
+      })) ?? [];
+
+    const existingTitles = new Set(
+      regularExtras.map((e) => e.title.trim().toLowerCase()),
+    );
+
+    const packageExtras = getPackageIncludedExtras()
+      .filter((e) => !existingTitles.has(e.title.trim().toLowerCase()))
+      .map((e, index) => ({
+        key: `package-${e.extra_id ?? index}-${e.title}`,
+        title: e.title,
+        isPackage: true,
+      }));
+
+    return [...regularExtras, ...packageExtras];
+  };
+
+  const getPackageQuestionRows = (): Array<{ label: string; value: string }> => {
+    const raw = bookingData._meta_data?._sb_package_question_answers;
+    if (!raw) return [];
+
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(decoded)) return [];
+
+    return decoded
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const item = entry as {
+          field_label?: string;
+          value?: string | number | string[];
+          others_text?: string;
+        };
+        const label = String(item.field_label || "").trim();
+        const value = item.value;
+        if (!label) return null;
+        if (value === undefined || value === null) return null;
+        if (typeof value === "string" && value.trim() === "") return null;
+        if (Array.isArray(value) && value.length === 0) return null;
+        const valueText = Array.isArray(value) ? value.join(", ") : String(value);
+        const others = String(item.others_text || "").trim();
+        return {
+          label,
+          value: others ? `${valueText} | Others: ${others}` : valueText,
+        };
+      })
+      .filter((row): row is { label: string; value: string } => !!row);
+  };
+
+  const packageQuestionRows = getPackageQuestionRows();
+
   return (
-    <div className="sb-step sb-step-7">
+    <div className="sb-step sb-step-6">
       {/* Success banner */}
       <div className="sb-confirm-banner">
         <span className="sb-confirm-icon" aria-hidden="true">
@@ -174,10 +415,14 @@ export function Step7Confirmation() {
                     `Space #${bookingData.space_id}`}
               </td>
             </tr> */}
+            <tr>
+              <th>Space</th>
+              <td>{getSpaceSummaryLabel()}</td>
+            </tr>
             {bookingData._selected_items &&
               bookingData._selected_items.length > 1 && (
                 <tr>
-                  <th>Selected Spaces</th>
+                  <th>Selected Items</th>
                   <td>
                     <ul style={{ margin: 0, paddingLeft: "20px" }}>
                       {bookingData._selected_items?.map((item) => (
@@ -185,11 +430,12 @@ export function Step7Confirmation() {
                           {item.type === "sb_package" ? "📦" : "🏠"}{" "}
                           {item.title}
                         </li>
-                      ))}
-                    </ul>
-                  </td>
-                </tr>
-              )}
+              ))}
+            </ul>
+          </td>
+        </tr>
+      )}
+
             <tr>
               <th>Date</th>
               <td>{bookingData.booking_date}</td>
@@ -219,21 +465,35 @@ export function Step7Confirmation() {
                 <td>{bookingData.customer_phone}</td>
               </tr>
             )}
+            {packageQuestionRows.length > 0 && (
+              <tr>
+                <th>Package Answers</th>
+                <td>
+                  <ul className="sb-confirm-extras">
+                    {packageQuestionRows.map((row, index) => (
+                      <li key={`${row.label}-${index}`}>
+                        <strong>{row.label}:</strong> {row.value}
+                      </li>
+                    ))}
+                  </ul>
+                </td>
+              </tr>
+            )}
             <tr>
               <th>Extras</th>
               <td>
-                {bookingData._extras_details &&
-                bookingData._extras_details.length > 0 ? (
+                {getExtrasDisplayItems().length > 0 ? (
                   <ul className="sb-confirm-extras">
-                    {bookingData._extras_details.map((e: any) => (
-                      <li key={e.extra_id}>
-                        {e.extra_name || e.title || getExtraTitle(e.extra_id)}
-                        {e.quantity > 1 && ` × ${e.quantity}`}
-                        {e.unit_price > 0 && (
+                    {getExtrasDisplayItems().map((e) => (
+                      <li key={e.key}>
+                        {e.title}
+                        {e.isPackage ? " (Package)" : ""}
+                        {!e.isPackage && (e.quantity ?? 0) > 1 && ` × ${e.quantity}`}
+                        {!e.isPackage && (e.unit_price ?? 0) > 0 && (
                           <span style={{ color: "#666", fontSize: "0.9em" }}>
                             {" "}
                             ({window.sbConfig.symbol}
-                            {e.unit_price.toFixed(2)})
+                            {(e.unit_price ?? 0).toFixed(2)})
                           </span>
                         )}
                       </li>

@@ -1,6 +1,7 @@
 <?php
 /** @var array $booking */
 /** @var array $extras */
+/** @var array $package_answer_rows */
 
 /**
  * Convert 24-hour time to 12-hour format with AM/PM
@@ -22,6 +23,9 @@ function sb_format_time_12hour(string $time): string
 $site_name = get_bloginfo('name');
 $space_name = get_the_title((int) $booking['space_id']);
 $admin_url = admin_url('admin.php?page=space-booking');
+$qa_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html(
+    is_array($package_answer_rows ?? null) ? $package_answer_rows : []
+);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -67,7 +71,7 @@ $admin_url = admin_url('admin.php?page=space-booking');
 
     .btn {
         display: inline-block;
-        background: #0073aa;
+        background: #7A48B0;
         color: #fff;
         padding: 10px 20px;
         border-radius: 6px;
@@ -144,6 +148,9 @@ $admin_url = admin_url('admin.php?page=space-booking');
                 <td><?php echo esc_html(ucfirst($booking['status'])); ?></td>
             </tr>
         </table>
+        <?php if ($qa_html !== ''): ?>
+            <?php echo wp_kses_post($qa_html); ?>
+        <?php endif; ?>
         <a class="btn" href="<?php echo esc_url($admin_url); ?>">View in Admin →</a>
     </div>
 </body>

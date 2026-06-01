@@ -121,6 +121,12 @@ final class AvailabilityController extends WP_REST_Controller
 
 		error_log('AVAIL CONTROLLER: FINAL space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ", date=$date");
 
+		if (empty($space_ids) && empty($package_ids)) {
+			return new WP_REST_Response([
+				'message' => 'Either space_ids or package_ids must be provided.'
+			], 422);
+		}
+
 		// Validate spaces only if we have space_ids (not for package-only)
 		foreach ($space_ids as $space_id) {
 			$post = get_post($space_id);
@@ -131,17 +137,38 @@ final class AvailabilityController extends WP_REST_Controller
 			}
 		}
 
+		foreach ($package_ids as $package_id) {
+			$post = get_post($package_id);
+			if (!$post || $post->post_type !== 'sb_package') {
+				return new WP_REST_Response([
+					'message' => "Package #$package_id not found."
+				], 404);
+			}
+		}
+
+		$resolved_space_ids = $this->availability->resolve_selected_space_ids($space_ids, $package_ids);
+		if (empty($resolved_space_ids)) {
+			return new WP_REST_Response([
+				'message' => 'Unable to resolve any space IDs for the selected packages.'
+			], 422);
+		}
+
 		error_log('AVAIL CONTROLLER MULTI: space_ids=' . json_encode($space_ids) . ', package_ids=' . json_encode($package_ids) . ", date=$date");
 
 		// NEW: Use intersection method for multi-space with package_ids support
-		$result = $this->availability->get_intersection_slots($space_ids, $date, $step_mins, $package_ids);
+		$result = $this->availability->get_intersection_slots($resolved_space_ids, $date, $step_mins, $package_ids);
 
 		$slots = $result['slots'];
 		$blockers = $result['blockers'];
 		$is_intersection = $result['is_intersection'];
 
 		// Determine has_fixed_slots from primary space
-		$primary_id = $space_ids[0];
+		$primary_id = $resolved_space_ids[0] ?? 0;
+		if (!$primary_id) {
+			return new WP_REST_Response([
+				'message' => 'Unable to determine a primary space for availability lookup.'
+			], 422);
+		}
 		$has_fixed_slots = $this->availability->has_fixed_slots_defined($primary_id);
 
 		// Compute open/close times
@@ -167,7 +194,7 @@ final class AvailabilityController extends WP_REST_Controller
 
 		return rest_ensure_response([
 			'date' => $date,
-			'space_ids' => $space_ids,
+			'space_ids' => $resolved_space_ids,
 			'is_multi' => true,
 			'is_intersection' => $is_intersection,
 			'open_time' => $open,

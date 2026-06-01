@@ -44,7 +44,7 @@ final class Installer
 			extras_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
 			modifier_price DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
 			total_price   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
-			status        ENUM('pending','in_review','confirmed','cancelled','refunded') NOT NULL DEFAULT 'pending',
+			status        ENUM('pending','in_review','confirmed','cancelled','refunded','trashed','deleted') NOT NULL DEFAULT 'pending',
 			stripe_pi_id   VARCHAR(191)    DEFAULT NULL,
 			notes          TEXT            DEFAULT NULL,
 			lookup_token  VARCHAR(64)     DEFAULT NULL,
@@ -136,6 +136,7 @@ final class Installer
 		(new \SpaceBooking\Migrations\MakeCustomerFieldsOptional())->run();
 		(new \SpaceBooking\Migrations\AddOrderId())->run();
 		(new \SpaceBooking\Migrations\CreateBookingSpacesTable())->run();
+		(new \SpaceBooking\Migrations\AddTrashStatuses())->run();
 
 		update_option('sb_db_version', SB_VERSION);
 	}
@@ -147,14 +148,13 @@ final class Installer
 		add_option('sb_global_close_time', '22:00');
 		add_option('sb_slot_interval_minutes', '60');
 		add_option('sb_currency', 'usd');
-		add_option('sb_stripe_publishable_key', '');
-		add_option('sb_stripe_secret_key', '');
-		add_option('sb_stripe_webhook_secret', '');
 		add_option('sb_admin_email', get_option('admin_email'));
 		add_option('sb_email_from_name', get_option('blogname'));
 		add_option('sb_magic_link_ttl_minutes', '30');
 		add_option('sb_buffer_pre_minutes', 15);
 		add_option('sb_buffer_post_minutes', 15);
-		add_option('sb_confirmation_email_template', '<p>Dear [customer_name],</p><p>Thank you for your booking #[order_id]. Details:</p><ul><li>Space: [space_name]</li><li>Date/Time: [booking_date]</li><li>Total: [total_price]</li></ul>[price_breakdown]<p>Access instructions: [access_instructions]</p>');
+		add_option('sb_checkout_model', 'reusable_product_v1');
+		add_option('sb_wc_reusable_product_id', 0);
+		add_option('sb_confirmation_email_template', '<p>Dear [customer_name],</p><p>Thank you for your booking #[order_id]. Details:</p><ul><li>Space: [space_name]</li><li>Date/Time: [booking_date]</li><li>Total: [total_price]</li></ul>[package_inclusions][package_question_answers][price_breakdown]<p>Access instructions: [access_instructions]</p>');
 	}
 }

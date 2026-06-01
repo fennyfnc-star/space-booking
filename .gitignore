@@ -45,3 +45,4 @@ vendor/
 # Except for README.md
 !README.md
 .blackboxcli/
+.phpunit.result.cache

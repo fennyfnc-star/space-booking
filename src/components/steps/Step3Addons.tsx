@@ -1,40 +1,9 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { useBookingStore, type MergedExtra } from "@/store/bookingStore";
+import { useEffect, useState } from "react";
+import { useBookingStore } from "@/store/bookingStore";
 import { fetchExtras, fetchPricing } from "@/utils/api";
-import type {
-  Extra,
-  PriceBreakdownItem,
-  PricingResponse,
-  SelectedExtra,
-  Space,
-  Package,
-  SelectionItem,
-} from "@/types";
+import type { Extra, Package, PricingResponse } from "@/types";
 
-// Icons as simple SVG components
-const MinusIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M3 8h10"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M8 3v10M3 8h10"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
-interface EnrichedBreakdownItem {
+interface PreviewItem {
   label: string;
   amount: number;
 }
@@ -42,37 +11,34 @@ interface EnrichedBreakdownItem {
 export function Step3Addons() {
   const {
     selectedItems,
-    lockedResourceIds,
     selectedDate,
     selectedStartTime,
     selectedEndTime,
     selectedExtras,
-    availableExtras,
     toggleExtra,
-    incrementExtra,
-    decrementExtra,
     setAvailableExtras,
     setPriceBreakdown,
     nextStep,
     prevStep,
-    getMergedExtras,
-    packageCoverage,
   } = useBookingStore();
 
-  // Get first resolved space ID (not package ID) for API calls
-  // When package is selected, lockedResourceIds[0] is the package ID, so we need to resolve the actual space
-  const getResolvedSpaceId = (): number => {
+  const [extras, setExtras] = useState<Extra[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState<{
+    total: number;
+    breakdown: PreviewItem[];
+  } | null>(null);
+
+  const resolveSelectedSpaceId = (): number => {
     for (const item of selectedItems) {
       if (item.type === "space") {
         return Number(item.id);
       }
+
       if (item.type === "package") {
         const pkg = item as Package;
-        if (
-          pkg.space_ids &&
-          Array.isArray(pkg.space_ids) &&
-          pkg.space_ids.length > 0
-        ) {
+        if (Array.isArray(pkg.space_ids) && pkg.space_ids.length > 0) {
           return pkg.space_ids[0];
         }
         if (pkg.space_id) {
@@ -80,85 +46,30 @@ export function Step3Addons() {
         }
       }
     }
+
     return 0;
   };
-  const spaceId = getResolvedSpaceId();
 
-  const pkgItem = selectedItems.find(
-    (item: SelectionItem) => item.type === "package",
-  ) as Package | undefined;
-  const packageId = pkgItem?.id;
-  const primarySpace = selectedItems.find(
-    (item: SelectionItem) => item.type === "space",
-  ) as Space | undefined;
-
-  // Entry logging AFTER state is available
-  console.group("🚀 STEP3 ADDONS - Entry Props");
-  console.log("spaceId:", spaceId);
-  console.log("selectedDate:", selectedDate);
-  console.log("selectedStartTime:", selectedStartTime);
-  console.log("selectedEndTime:", selectedEndTime);
-  console.log("pkgItem:", pkgItem);
-  console.log("primarySpace:", primarySpace);
-  console.log("selectedExtras:", selectedExtras);
-  console.groupEnd();
-
-  const [extras, setExtras] = useState<Extra[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{
-    total: number;
-    breakdown: EnrichedBreakdownItem[];
-  } | null>(null);
+  const spaceId = resolveSelectedSpaceId();
+  const selectedPackages = selectedItems.filter(
+    (item) => item.type === "package",
+  ) as Package[];
 
   useEffect(() => {
     if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime) {
-      console.log("STEP3: Missing required params, skipping fetchExtras");
       return;
     }
 
-    // Note: Don't auto-select package extras - backend handles included extras in breakdown
-    // Just log for debugging
-    if (pkgItem) {
-      const pkg = pkgItem as Package;
-      const includedExtraIds: number[] = [];
-      if (pkg.extra_ids && Array.isArray(pkg.extra_ids)) {
-        includedExtraIds.push(...pkg.extra_ids);
-      } else if (pkg.extra_id) {
-        includedExtraIds.push(pkg.extra_id);
-      }
-      if (includedExtraIds.length > 0) {
-        console.log(
-          "📦 Package includes extras (backend handles breakdown):",
-          includedExtraIds,
-        );
-      }
-    }
-
-    console.group("📦 STEP3 fetchExtras");
-    console.log("Params:", {
-      spaceId,
-      selectedDate,
-      selectedStartTime,
-      selectedEndTime,
-    });
-
     setLoading(true);
+    setError("");
+
     fetchExtras(spaceId, selectedDate, selectedStartTime, selectedEndTime)
       .then((data) => {
-        console.log("✅ fetchExtras RAW RESPONSE:", data);
-        console.log("Extras count:", data.length);
-        if (data.length === 0) {
-          console.warn("⚠️ Backend returned EMPTY extras array!");
-        }
         setExtras(data);
         setAvailableExtras(data);
-        console.groupEnd();
       })
       .catch((e: Error) => {
-        console.error("❌ fetchExtras ERROR:", e.message);
         setError(e.message);
-        console.groupEnd();
       })
       .finally(() => setLoading(false));
   }, [
@@ -169,274 +80,63 @@ export function Step3Addons() {
     setAvailableExtras,
   ]);
 
-  // Re-calculate price whenever extras selection changes
   useEffect(() => {
     if (!spaceId || !selectedDate || !selectedStartTime || !selectedEndTime) {
-      console.log("STEP3: Missing params, skipping fetchPricing");
       return;
     }
 
-    console.group("💰 STEP3 fetchPricing");
+    const itemIds = selectedItems.map((item) => Number(item.id));
+    const packageIds = selectedItems
+      .filter((item) => item.type === "package")
+      .map((item) => Number(item.id));
 
-    // Build item_ids - include package ID if selected, but also any additional spaces not in the package
-    const itemIds: number[] = [];
-
-    // Add package ID if it exists
-    if (packageId) {
-      itemIds.push(Number(packageId));
-    }
-
-    // Add any additional spaces that were selected separately (not part of the package)
-    // This allows users to select a package plus additional spaces
-    for (const item of selectedItems) {
-      if (item.type === "space") {
-        // Only add space if it's not already part of the package
-        // If no package is selected, add all spaces
-        if (!packageId) {
-          itemIds.push(Number(item.id));
-        } else {
-          // If package exists, only add spaces that are NOT part of the package
-          // Determine which spaces are in the package
-          const pkgItem = selectedItems.find((i) => i.type === "package") as
-            | Package
-            | undefined;
-          const packageSpaceIds = pkgItem?.space_ids || [];
-
-          // Add the space if it's not in the package
-          if (!packageSpaceIds.includes(Number(item.id))) {
-            itemIds.push(Number(item.id));
-          }
-        }
-      }
-    }
-
-    const pricingParams = {
-      // NEW SCHEMA: Use arrays instead of singular IDs (maintaining backward compatibility)
-      space_id: spaceId || 0,
-      item_ids: [
-        ...useBookingStore.getState().getAllSpaceIds(), 
-        ...useBookingStore.getState().getAllPackageIds()
-      ],
+    fetchPricing({
+      space_id: spaceId,
+      item_ids: itemIds,
       date: selectedDate,
       start_time: selectedStartTime,
       end_time: selectedEndTime,
       extras: selectedExtras,
-      // Pass first package ID for extras allowance calculation (the API currently accepts one)
-      package_id: useBookingStore.getState().getAllPackageIds()[0] || undefined,
-    };
-    console.log("Params sent to /pricing:", pricingParams);
-
-    fetchPricing(pricingParams)
+      package_ids: packageIds,
+    })
       .then((res: PricingResponse) => {
-        console.log("✅ fetchPricing FULL RESPONSE:", res);
-        console.log("Total:", res.total_price);
-        console.log("Breakdown:", res.breakdown);
-        // Backend now provides detailed labels, no frontend enrichment needed
-        setPreview({ total: res.total_price, breakdown: res.breakdown });
-        setPriceBreakdown(res.breakdown, res.total_price);
-
-        console.groupEnd();
+        setPreview({
+          total: res.total_price,
+          breakdown: res.breakdown,
+        });
+        setPriceBreakdown(res.breakdown, res.total_price, res.extras_details);
       })
-      .catch((error) => {
-        console.error("❌ fetchPricing ERROR:", error);
-        console.groupEnd();
+      .catch((e) => {
+        console.error("Failed to fetch pricing:", e);
       });
   }, [
-    selectedExtras,
-    availableExtras,
-    primarySpace,
-    pkgItem,
-    spaceId,
     selectedDate,
-    selectedStartTime,
     selectedEndTime,
-    packageId,
+    selectedExtras,
+    selectedItems,
+    selectedStartTime,
+    setPriceBreakdown,
+    spaceId,
   ]);
 
-  // Get merged extras for UI display
-  const mergedExtras = getMergedExtras();
-
-  // Helper to get package title for badge
-  const getPackageTitle = () => {
-    if (packageCoverage.length === 0) return null;
-    return packageCoverage[0].packageTitle;
-  };
-  const packageTitle = getPackageTitle();
-
-  // Helper to get space name for breakdown enrichment
-  const getSpaceName = (): string => {
-    const spaceItem = selectedItems.find((i) => i.type === "space");
-    if (spaceItem) return spaceItem.title;
-    if (pkgItem && pkgItem.space_name) return pkgItem.space_name;
-    return "";
-  };
-  const spaceName = getSpaceName();
-
-  // Return label as-is from backend
-  const enrichBreakdownLabel = (label: string): string => {
-    return label;
-  };
-
-  // Check if extra is included in package
   const isIncludedInPackage = (extraId: number): boolean => {
-    if (!pkgItem) return false;
-    const pkg = pkgItem as Package;
-    const extraIds = pkg.extra_ids || [];
-    return extraIds.includes(extraId);
+    return selectedPackages.some(
+      (pkg) => Array.isArray(pkg.extra_ids) && pkg.extra_ids.includes(extraId),
+    );
   };
 
-  // Check if extra belongs to any package (should be hidden from addable list)
-  // Also checks if extra is in the selected package's extra_ids for backward compatibility
   const isPackageOwned = (extra: Extra): boolean => {
-    // Check package_ids field from API
-    if (extra.package_ids && extra.package_ids.length > 0) {
+    if (Array.isArray(extra.package_ids) && extra.package_ids.length > 0) {
       return true;
     }
-    // Fallback: check if extra is in the selected package's extra_ids
-    if (pkgItem) {
-      const pkg = pkgItem as Package;
-      const extraIds = pkg.extra_ids || [];
-      if (extraIds.includes(extra.id)) {
-        return true;
-      }
-    }
-    return false;
+
+    return selectedPackages.some(
+      (pkg) => Array.isArray(pkg.extra_ids) && pkg.extra_ids.includes(extra.id),
+    );
   };
 
   const isSelected = (extraId: number) =>
-    selectedExtras.some((e) => e.extra_id === extraId);
-
-  // Get merged extra for an ID
-  const getMergedExtra = (id: number): MergedExtra | undefined =>
-    mergedExtras.find((m) => m.extra_id === id);
-
-  // Render price with included/paid split
-  const renderExtraPrice = (extra: Extra, merged: MergedExtra | undefined) => {
-    if (!merged) {
-      // Not selected or no merged data - show regular price
-      return (
-        <span className="sb-extra-card__price">
-          {window.sbConfig.symbol}
-          {extra.price.toFixed(2)}
-        </span>
-      );
-    }
-
-    const { total_qty, included_qty, paid_qty, unit_price, is_locked } = merged;
-
-    // Case 1: Fully included (locked)
-    if (is_locked && paid_qty === 0) {
-      return (
-        <div className="sb-extra-card__price-split">
-          <span className="sb-badge sb-badge--included">
-            ✓ Included in {packageTitle}
-          </span>
-          <span className="sb-extra-card__price">
-            {window.sbConfig.symbol}0.00
-          </span>
-        </div>
-      );
-    }
-
-    // Case 2: Partially included (some paid, some free)
-    if (included_qty > 0 && paid_qty > 0) {
-      return (
-        <div className="sb-extra-card__price-split">
-          <span className="sb-badge sb-badge--included">
-            ✓ {included_qty} Included
-          </span>
-          <span className="sb-extra-card__price">
-            +{paid_qty} Additional: {window.sbConfig.symbol}
-            {(paid_qty * unit_price).toFixed(2)}
-          </span>
-        </div>
-      );
-    }
-
-    // Case 3: No package - regular price
-    return (
-      <span className="sb-extra-card__price">
-        {window.sbConfig.symbol}
-        {extra.price.toFixed(2)}
-      </span>
-    );
-  };
-
-  // Check if quantity controls should be disabled
-  const isQuantityLocked = (extraId: number): boolean => {
-    const merged = getMergedExtra(extraId);
-    return merged?.is_locked ?? false;
-  };
-
-  // Helper to render price display for an extra
-  const renderPriceDisplay = (extra: Extra) => {
-    const merged = getMergedExtra(extra.id);
-    if (!merged) {
-      // Not selected - show regular price
-      return (
-        <span className="sb-extra-card__price">
-          {window.sbConfig.symbol}
-          {extra.price.toFixed(2)}
-        </span>
-      );
-    }
-
-    // Selected - show split price display
-    const { total_qty, included_qty, paid_qty, unit_price, is_locked } = merged;
-
-    return (
-      <div className="sb-extra-card__price-split">
-        {included_qty > 0 && (
-          <>
-            <span className="sb-extra-card__price--included">
-              ✓ Included in {packageTitle || "Package"}
-            </span>
-            {paid_qty > 0 && (
-              <span className="sb-extra-card__price--additional">
-                +{paid_qty} Additional: {window.sbConfig.symbol}
-                {(paid_qty * unit_price).toFixed(2)}
-              </span>
-            )}
-            {paid_qty === 0 && (
-              <span className="sb-extra-card__price--free">
-                {window.sbConfig.symbol}0.00
-              </span>
-            )}
-          </>
-        )}
-        {included_qty === 0 && (
-          <span className="sb-extra-card__price">
-            {window.sbConfig.symbol}
-            {(total_qty * unit_price).toFixed(2)}
-          </span>
-        )}
-      </div>
-    );
-  };
-
-  // Helper to get quantity for an extra
-  const getQuantity = (id: number): number => {
-    const sel = selectedExtras.find((e) => e.extra_id === id);
-    return sel?.quantity ?? 0;
-  };
-
-  // Helper to check if minus should be disabled
-  const isMinusDisabled = (id: number): boolean => {
-    const merged = getMergedExtra(id);
-    if (!merged) return true;
-    // Disable minus when at minimum (included_qty)
-    return merged.total_qty <= merged.included_qty;
-  };
-
-  // Helper to check if plus should be disabled (at max inventory)
-  const isPlusDisabled = (id: number): boolean => {
-    const extra = extras.find((e) => e.id === id);
-    if (!extra || !extra.is_available) return true;
-    const merged = getMergedExtra(id);
-    const maxQty = extra.available_qty ?? 999;
-    // Disable if at max available quantity
-    return merged ? merged.total_qty >= maxQty : false;
-  };
+    selectedExtras.some((extra) => extra.extra_id === extraId);
 
   return (
     <div className="sb-step sb-step-3">
@@ -480,11 +180,7 @@ export function Step3Addons() {
                     </span>
                     {!extra.is_available && extra.unavailable_reason && (
                       <span
-                        className={`sb-badge sb-badge--sold-out ${
-                          extra.unavailable_reason === "space_override"
-                            ? "sb-badge--closed"
-                            : ""
-                        }`}
+                        className={`sb-badge sb-badge--sold-out ${extra.unavailable_reason === "space_override" ? "sb-badge--closed" : ""}`}
                       >
                         {extra.unavailable_reason === "space_override"
                           ? "Closed this time"
@@ -498,7 +194,7 @@ export function Step3Addons() {
                     )}
                   </div>
                 </div>
-                {/* Show "Included" badge if extra is in package, otherwise show Add/Remove button */}
+
                 {isIncludedInPackage(extra.id) ? (
                   <span className="sb-badge sb-badge--included">
                     ✓ Included
@@ -511,16 +207,7 @@ export function Step3Addons() {
                   <button
                     className={`sb-btn ${isSelected(extra.id) ? "sb-btn--danger" : "sb-btn--secondary"}`}
                     disabled={!extra.is_available}
-                    onClick={() => {
-                      console.group("🔄 STEP3 Toggle Extra");
-                      console.log("Toggling extra ID:", extra.id);
-                      console.log("Current selectedExtras:", selectedExtras);
-                      toggleExtra(extra.id);
-                      console.log(
-                        "After toggle - should trigger pricing refetch",
-                      );
-                      console.groupEnd();
-                    }}
+                    onClick={() => toggleExtra(extra.id)}
                   >
                     {isSelected(extra.id) ? "Remove" : "Add"}
                   </button>
@@ -531,7 +218,6 @@ export function Step3Addons() {
         </div>
       )}
 
-      {/* Live price preview */}
       {preview && (
         <div className="sb-price-preview">
           <h4>Price Preview</h4>
@@ -541,7 +227,7 @@ export function Step3Addons() {
                 key={i}
                 className={`sb-breakdown__item ${item.label.includes("(Package Inclusion)") ? "package-inclusion" : ""}`}
               >
-                <span>{enrichBreakdownLabel(item.label)}</span>
+                <span>{item.label}</span>
                 <span>
                   {window.sbConfig.symbol}
                   {item.amount.toFixed(2)}

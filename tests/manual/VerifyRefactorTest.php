@@ -2,23 +2,12 @@
 
 /**
  * Pest Test - Unified Resource-Based Booking Architecture Verification
- * Run with: vendor/bin/pest tests/VerifyRefactorTest.php
+ * Run with: vendor/bin/pest tests/manual/VerifyRefactorTest.php
  */
 uses(Tests\TestCase::class);
 
 global $wpdb;
 $table = 'wp_sb_bookings';
-
-// Set up WordPress globals for testing
-function get_post($id)
-{
-    return get_post($id);
-}
-
-function get_post_meta($id, $key, $single = false)
-{
-    return get_post_meta($id, $key, $single);
-}
 
 // Test A: Multi-Space Booking Creation
 test('Test A: Creates two distinct rows for multi-space booking', function () use ($wpdb, $table) {

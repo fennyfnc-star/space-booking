@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { fetchSpaces, fetchPackages, fetchAllExtras } from "@/utils/api";
-import type { Space, Package, SelectionItem, Extra } from "@/types";
+import type { Space, Package, Extra } from "@/types";
 
 export function Step1Selection() {
   const formatTimeTo12Hour = (timeStr: string): string => {
@@ -43,18 +43,6 @@ export function Step1Selection() {
       .finally(() => setLoading(false));
   }, [loadResourceMap]);
 
-  // Load data and resource map
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchSpaces(), fetchPackages(), fetchAllExtras(), loadResourceMap()])
-      .then(([s, p, e]) => {
-        setSpaces(s);
-        setPackages(p);
-        setExtras(e);
-      })
-      .finally(() => setLoading(false));
-  }, [loadResourceMap]);
-  
   // Helper: Resolve extra ID to title
   const getExtraTitle = (extraId: number): string => {
     const extra = extras.find(e => e.id === extraId);
@@ -67,7 +55,7 @@ export function Step1Selection() {
 
   // Use store toggleItem directly
   const handleSelect = useCallback(
-    (item: Space | Package, type: "space" | "package") => {
+    (item: Space | Package) => {
       toggleItem(item);
     },
     [toggleItem],
@@ -97,7 +85,6 @@ export function Step1Selection() {
       const result = packageCoverage.some((pc) =>
         pc.coveredSpaceIds.includes(itemId),
       );
-      console.log("🔍 isCoveredByPackage:", itemId, "result:", result, "packageCoverage:", packageCoverage);
       return result;
     },
     [packageCoverage],
@@ -109,7 +96,6 @@ export function Step1Selection() {
       const result = packageCoverage.find((pc) =>
         pc.coveredSpaceIds.includes(spaceId),
       );
-      console.log("🔍 getCoveringPackage:", spaceId, "result:", result);
       return result;
     },
     [packageCoverage],
@@ -126,7 +112,6 @@ export function Step1Selection() {
       const hasSelectedSpace = selectedItems.some((sel) =>
         pkg.space_ids!.includes(Number(sel.id)),
       );
-      console.log("🔒 isPackageBlockedBySelection:", item.id, "space_ids:", pkg.space_ids, "hasSelectedSpace:", hasSelectedSpace);
       return hasSelectedSpace;
     },
     [selectedItems],
@@ -154,13 +139,13 @@ export function Step1Selection() {
     const blockingNames = type === "package" ? getBlockingSpaceNames(item) : [];
     const space = item as Space;
     const overrides = space.price_overrides ?? [];
+    const packageSpaceIds = (item as Package).space_ids ?? [];
+    const packageExtraIds = (item as Package).extra_ids ?? [];
     const itemId = item.id;
     
     // Card is locked if either locked by physical overlap OR blocked by selected spaces
     const isCardLocked = locked || packageBlocked;
     
-    console.log("🎴 renderCard:", itemId, "type:", type, "selected:", selected, "locked:", locked, "covered:", covered, "packageBlocked:", packageBlocked);
-
     return (
       <div
         key={itemId}
@@ -168,11 +153,11 @@ export function Step1Selection() {
           ${selected ? "sb-card--selected" : ""} 
           ${isCardLocked ? "sb-card--locked opacity-50 cursor-not-allowed" : "cursor-pointer"}
         `}
-        onClick={!isCardLocked ? () => handleSelect(item, type) : undefined}
+        onClick={!isCardLocked ? () => handleSelect(item) : undefined}
         role="button"
         tabIndex={isCardLocked ? -1 : 0}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !isCardLocked) handleSelect(item, type);
+          if (e.key === "Enter" && !isCardLocked) handleSelect(item);
         }}
       >
         <img
@@ -250,18 +235,18 @@ export function Step1Selection() {
               
               {/* Display package inclusions */}
               <div className="sb-package-inclusions">
-                {(item as Package).space_ids && (item as Package).space_ids.length > 0 && (
+                {packageSpaceIds.length > 0 && (
                   <div className="sb-package-spaces">
                     <span className="font-medium">Includes spaces:</span> {spaces
-                      .filter(space => (item as Package).space_ids?.includes(space.id))
+                      .filter(space => packageSpaceIds.includes(space.id))
                       .map(space => space.title)
                       .join(', ')}
                   </div>
                 )}
                 
-                {(item as Package).extra_ids && (item as Package).extra_ids.length > 0 && (
+                {packageExtraIds.length > 0 && (
                   <div className="sb-package-extras">
-                    <span className="font-medium">Includes extras:</span> {(item as Package).extra_ids
+                    <span className="font-medium">Includes extras:</span> {packageExtraIds
                       .map(extraId => getExtraTitle(extraId))
                       .join(', ')}
                   </div>
@@ -311,8 +296,9 @@ export function Step1Selection() {
         Choose Spaces or Packages (Multi-Select)
       </h2>
       <p className="sb-step__subtitle">
-        {/* Selected: {selectedItems.length} items | Locked resources:{" "}
-        {lockedResourceIds.length} */}
+        You can select multiple spaces or multiple packages. You cannot select a
+        package and one of its included spaces at the same time, and conflicting
+        items will be locked automatically. Click selected cards again to unselect.
       </p>
 
       {/* Tabs */}
@@ -382,7 +368,6 @@ export function Step1Selection() {
                 className="w-full sb-btn sb-btn--secondary py-3"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  console.log("Clear cart & start new booking");
                 }}
               >
                 Delete Previous & Start Again

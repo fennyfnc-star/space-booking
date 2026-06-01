@@ -10,6 +10,8 @@ use SpaceBooking\Services\WooCommerceService;
  */
 final class WooCommerceIntegration
 {
+    private const SNAPSHOT_KEY = 'sb_price_snapshot_v1';
+
     public static function init(): void
     {
         if (!class_exists('WooCommerce')) {
@@ -24,8 +26,14 @@ final class WooCommerceIntegration
         add_action('woocommerce_order_status_processing', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_order_status_on-hold', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_order_status_completed', [self::class, 'confirm_booking'], 10, 1);
-        // Late redirect check after all payment hooks
-        add_action('wp_footer', [self::class, 'late_redirect_check'], 9999);
+        add_action('woocommerce_before_calculate_totals', [self::class, 'apply_snapshot_cart_prices'], 50, 1);
+        add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 999, 3);
+        add_filter('woocommerce_get_item_data', [self::class, 'render_cart_item_data'], 10, 2);
+        add_filter('woocommerce_order_item_get_formatted_meta_data', [self::class, 'filter_internal_order_item_meta'], 10, 2);
+        add_action('woocommerce_review_order_before_cart_contents', [self::class, 'render_checkout_order_summary_breakdown'], 20);
+        add_action('woocommerce_thankyou', [self::class, 'handle_thankyou_redirect'], 20, 1);
+        // Resolve confirmation redirect before output starts on order-received endpoint.
+        add_action('template_redirect', [self::class, 'late_redirect_check'], 30);
 
         // Line item meta backup
         \SpaceBooking\Services\WooCommerceService::register_hooks();
@@ -39,6 +47,384 @@ final class WooCommerceIntegration
         // Custom order action - DISABLED to avoid duplicate with WooCommerceOrderActions.php
         // add_filter('woocommerce_order_actions', [self::class, 'add_confirmation_action'], 10, 2);
         // add_action('woocommerce_order_action_send_sb_confirmation_email', [self::class, 'handle_confirmation_action'], 10, 1);
+    }
+
+    /**
+     * Apply immutable snapshot price to cart line item.
+     */
+    public static function apply_snapshot_cart_prices($cart): void
+    {
+        if (!is_object($cart) || (is_admin() && !defined('DOING_AJAX'))) {
+            return;
+        }
+
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            if (!isset($cart_item['sb_cart_price']) || !isset($cart_item['data'])) {
+                continue;
+            }
+
+            $line_total = (float) $cart_item['sb_cart_price'];
+            if ($line_total < 0) {
+                continue;
+            }
+
+            $product = $cart_item['data'];
+            if (!is_object($product)) {
+                continue;
+            }
+
+            // Some checkout templates read product getters directly instead of woocommerce_cart_item_name.
+            // Clone per cart line and set a line-specific name so space/package/extra labels always render.
+            $line_label = trim((string) ($cart_item['sb_display_title'] ?? ''));
+            if ($line_label !== '') {
+                $product = clone $product;
+                if (method_exists($product, 'set_name')) {
+                    $product->set_name(sanitize_text_field($line_label));
+                }
+                if (method_exists($product, 'set_short_description')) {
+                    $product->set_short_description('');
+                }
+                $cart->cart_contents[$cart_item_key]['data'] = $product;
+            }
+
+            $product->set_price($line_total);
+            $cart->cart_contents[$cart_item_key]['sb_cart_price'] = $line_total;
+        }
+    }
+
+    /**
+     * Render booking-specific cart item title.
+     */
+    public static function render_cart_item_name(string $name, array $cart_item, string $cart_item_key): string
+    {
+        $display_title = trim((string) ($cart_item['sb_display_title'] ?? ''));
+        if ($display_title !== '') {
+            return esc_html($display_title);
+        }
+
+        if (!empty($cart_item['sb_breakdown']) && is_string($cart_item['sb_breakdown'])) {
+            $decoded = json_decode($cart_item['sb_breakdown'], true);
+            if (is_array($decoded) && isset($decoded[0]) && is_array($decoded[0])) {
+                $fallback_label = sanitize_text_field((string) ($decoded[0]['label'] ?? ''));
+                if ($fallback_label !== '') {
+                    return esc_html($fallback_label);
+                }
+            }
+        }
+
+        return $name;
+    }
+
+    /**
+     * Render booking details on cart/checkout item meta.
+     */
+    public static function render_cart_item_data(array $item_data, array $cart_item): array
+    {
+        if (function_exists('is_checkout') && is_checkout()) {
+            return $item_data;
+        }
+
+        if (empty($cart_item['sb_date'])) {
+            return $item_data;
+        }
+
+        $time_label = trim((string) ($cart_item['sb_start_time'] ?? '') . ' - ' . (string) ($cart_item['sb_end_time'] ?? ''));
+        $item_data[] = [
+            'name' => 'Booking Date',
+            'value' => sanitize_text_field((string) $cart_item['sb_date']),
+        ];
+        if ($time_label !== '-') {
+            $item_data[] = [
+                'name' => 'Time',
+                'value' => sanitize_text_field($time_label),
+            ];
+        }
+
+        return $item_data;
+    }
+
+    /**
+     * Hide internal Space Booking order-item meta from customer-facing rendering (emails/order pages).
+     */
+    public static function filter_internal_order_item_meta(array $formatted_meta, $item): array
+    {
+        $is_email_context = did_action('woocommerce_email_before_order_table') > 0
+            || did_action('woocommerce_email_order_details') > 0;
+        $is_customer_context = !is_admin() || $is_email_context;
+
+        if (!$is_customer_context) {
+            return $formatted_meta;
+        }
+
+        foreach ($formatted_meta as $meta_id => $meta) {
+            $key = isset($meta->key) ? (string) $meta->key : '';
+            if (self::is_internal_spacebooking_meta_key($key)) {
+                unset($formatted_meta[$meta_id]);
+            }
+        }
+
+        return $formatted_meta;
+    }
+
+    private static function is_internal_spacebooking_meta_key(string $key): bool
+    {
+        if ($key === '') {
+            return false;
+        }
+
+        if (strpos($key, 'sb_') === 0) {
+            return true;
+        }
+
+        return in_array($key, [
+            'sb_price_snapshot_v1',
+            'sb_breakdown',
+            'sb_display_title',
+            'sb_component_type',
+            'sb_component_qty',
+        ], true);
+    }
+
+    /**
+     * Inject booking breakdown HTML rows directly into checkout Order Summary.
+     */
+    public static function render_checkout_order_summary_breakdown(): void
+    {
+        if (!function_exists('WC') || !WC() || !WC()->cart) {
+            return;
+        }
+
+        $cart_items = WC()->cart->get_cart();
+        if (empty($cart_items)) {
+            return;
+        }
+
+        $first_cart_item = reset($cart_items);
+        if (!is_array($first_cart_item)) {
+            return;
+        }
+
+        $schedule_row = self::build_schedule_row($first_cart_item);
+        $booking_id = absint($first_cart_item['sb_booking_id'] ?? 0);
+        $rows = self::normalize_breakdown_rows(
+            self::resolve_breakdown_for_cart_item($first_cart_item, $booking_id > 0 ? $booking_id : 0)
+        );
+
+        if ($schedule_row === null && empty($rows)) {
+            return;
+        }
+
+        if ($schedule_row !== null) {
+            echo '<tr class="custom-booking-info">';
+            echo '<td colspan="2" style="background-color:#fcfaff;padding:15px;border:1px solid #e0d1f0;border-radius:5px;">';
+            echo '<span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7a56a5;font-weight:700;margin-bottom:5px;">' . esc_html__('Your Booking Schedule', 'space-booking') . '</span>';
+            echo '<strong style="color:#333;">' . esc_html__('Date:', 'space-booking') . '</strong> ' . esc_html($schedule_row['date']) . '<br>';
+            echo '<strong style="color:#333;">' . esc_html__('Time:', 'space-booking') . '</strong> ' . esc_html($schedule_row['time']);
+            echo '</td>';
+            echo '</tr>';
+        }
+
+        if (empty($rows)) {
+            return;
+        }
+
+        $total = 0.0;
+        $breakdown_html = '';
+        foreach ($rows as $row) {
+            $amount = isset($row['amount']) && is_numeric($row['amount']) ? (float) $row['amount'] : 0.0;
+            $total += $amount;
+            $breakdown_html .= '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;">';
+            $breakdown_html .= '<span>' . esc_html($row['label']) . '</span>';
+            $breakdown_html .= '<span>' . esc_html($row['display']) . '</span>';
+            $breakdown_html .= '</div>';
+        }
+
+        echo '<tr class="sb-breakdown-container-row">';
+        echo '<td colspan="2">';
+        echo '<div class="sb-breakdown-container" style="margin-top:10px;background:#f8f8f8;padding:12px;border:1px solid #e5e5e5;border-radius:5px;">';
+        echo '<div style="font-weight:700;margin-bottom:6px;">' . esc_html__('Booking Price Breakdown', 'space-booking') . '</div>';
+        echo $breakdown_html;
+        echo '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:8px;margin-top:8px;border-top:1px solid #ddd;font-weight:700;">';
+        echo '<span>' . esc_html__('Total', 'space-booking') . '</span>';
+        echo '<span>' . esc_html(wp_strip_all_tags((string) wc_price($total), true)) . '</span>';
+        echo '</div>';
+        echo '</div>';
+        echo '</td>';
+        echo '</tr>';
+    }
+
+    private static function build_schedule_row(array $cart_item): ?array
+    {
+        $raw_date = trim((string) ($cart_item['sb_date'] ?? ''));
+        if ($raw_date === '') {
+            return null;
+        }
+
+        $start_raw = trim((string) ($cart_item['sb_start_time'] ?? ''));
+        $end_raw = trim((string) ($cart_item['sb_end_time'] ?? ''));
+
+        $date_ts = strtotime($raw_date);
+        $start_ts = $start_raw !== '' ? strtotime($start_raw) : false;
+        $end_ts = $end_raw !== '' ? strtotime($end_raw) : false;
+
+        $formatted_date = $date_ts ? wp_date('F j, Y', $date_ts) : $raw_date;
+        $formatted_start = $start_ts ? wp_date('g:i A', $start_ts) : $start_raw;
+        $formatted_end = $end_ts ? wp_date('g:i A', $end_ts) : $end_raw;
+
+        $formatted_time = trim($formatted_start . ' - ' . $formatted_end, ' -');
+        if ($formatted_time === '') {
+            $formatted_time = esc_html__('N/A', 'space-booking');
+        }
+
+        return [
+            'date' => $formatted_date,
+            'time' => $formatted_time,
+        ];
+    }
+
+    private static function extract_include_labels_from_breakdown_json(string $json): array
+    {
+        if ($json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return self::extract_include_labels_from_breakdown_array($decoded);
+    }
+
+    private static function resolve_breakdown_for_cart_item(array $cart_item, int $booking_id): array
+    {
+        $breakdown = [];
+        $sb_breakdown = (string) ($cart_item['sb_breakdown'] ?? '');
+        if ($sb_breakdown !== '') {
+            $decoded = json_decode($sb_breakdown, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        $snapshot_json = (string) ($cart_item[self::SNAPSHOT_KEY] ?? '');
+        if ($snapshot_json !== '') {
+            $snapshot = json_decode($snapshot_json, true);
+            if (is_array($snapshot) && is_array($snapshot['line_items'] ?? null)) {
+                foreach ($snapshot['line_items'] as $line) {
+                    if (!is_array($line)) {
+                        continue;
+                    }
+                    $breakdown[] = [
+                        'label' => (string) ($line['label'] ?? ''),
+                        'amount' => (float) ($line['line_total'] ?? 0),
+                    ];
+                }
+                if (!empty($breakdown)) {
+                    return $breakdown;
+                }
+            }
+        }
+
+        if ($booking_id > 0) {
+            $repo = new BookingRepository();
+            $enriched = $repo->get_meta($booking_id, '_sb_price_breakdown_enriched');
+            if (is_string($enriched) && $enriched !== '') {
+                $decoded = json_decode($enriched, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            $raw = $repo->get_meta($booking_id, '_sb_price_breakdown');
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private static function normalize_breakdown_rows(array $breakdown): array
+    {
+        $rows = [];
+        foreach ($breakdown as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+
+            $formatted = sanitize_text_field((string) ($line['formatted'] ?? ''));
+            if ($formatted !== '') {
+                $rows[] = [
+                    'label' => $label,
+                    'display' => $formatted,
+                    'amount' => isset($line['amount']) && is_numeric($line['amount']) ? (float) $line['amount'] : 0.0,
+                ];
+                continue;
+            }
+
+            $amount = null;
+            if (isset($line['amount']) && is_numeric($line['amount'])) {
+                $amount = (float) $line['amount'];
+            } elseif (isset($line['line_total']) && is_numeric($line['line_total'])) {
+                $amount = (float) $line['line_total'];
+            }
+
+            if ($amount === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'label' => $label,
+                'display' => wp_strip_all_tags((string) wc_price($amount), true),
+                'amount' => $amount,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private static function extract_include_labels_from_snapshot_json(string $json): array
+    {
+        if ($json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded) || !is_array($decoded['line_items'] ?? null)) {
+            return [];
+        }
+        $labels = [];
+        foreach ($decoded['line_items'] as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = $label;
+            }
+        }
+        return array_values(array_unique($labels));
+    }
+
+    private static function extract_include_labels_from_breakdown_array(array $breakdown): array
+    {
+        $labels = [];
+        foreach ($breakdown as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = $label;
+            }
+        }
+        return array_values(array_unique($labels));
     }
 
     // public static function add_confirmation_action($actions, $order)
@@ -78,6 +464,19 @@ final class WooCommerceIntegration
     public static function display_booking_breakdown($order): void
     {
         $enriched_breakdown = $order->get_meta('_sb_price_breakdown_enriched');
+        $snapshot = $order->get_meta('_sb_price_snapshot_v1');
+        if (!$enriched_breakdown && is_string($snapshot)) {
+            $decoded = json_decode($snapshot, true);
+            if (is_array($decoded) && !empty($decoded['line_items'])) {
+                $enriched_breakdown = array_map(static function (array $line): array {
+                    return [
+                        'label' => $line['label'] ?? 'Item',
+                        'amount' => (float) ($line['line_total'] ?? 0),
+                    ];
+                }, $decoded['line_items']);
+            }
+        }
+
         if (!$enriched_breakdown || !is_array($enriched_breakdown)) {
             return;
         }
@@ -111,20 +510,112 @@ final class WooCommerceIntegration
     public static function save_booking_meta_guaranteed($order_id): void
     {
         $order = wc_get_order($order_id);
-        if (!$order || $order->get_meta('_sb_booking_id')) {
+        if (!$order) {
             return;
         }
 
-        // Check line items (same logic as save_order_meta)
+        $has_booking_id = (bool) $order->get_meta('_sb_booking_id');
         foreach ($order->get_items() as $item) {
             $booking_id = $item->get_meta('sb_booking_id', true);
-            if ($booking_id) {
+            $snapshot = $item->get_meta(self::SNAPSHOT_KEY, true);
+            if ($booking_id && !$has_booking_id) {
                 $order->update_meta_data('_sb_booking_id', $booking_id);
-                $order->save();
-                error_log('SpaceBooking WC: GUARANTEED save booking_id ' . $booking_id . ' to order #' . $order_id);
-                return;
+                $has_booking_id = true;
+            }
+            if (is_string($snapshot) && $snapshot !== '') {
+                $order->update_meta_data('_sb_price_snapshot_v1', $snapshot);
             }
         }
+
+        $order->save();
+    }
+
+    /**
+     * Mirror booking contact data into WooCommerce order data once.
+     * This keeps the order usable for customer support without repeating the same
+     * values on every line item.
+     */
+    private static function sync_booking_contact_to_order(\WC_Order $order, int $booking_id, BookingRepository $repo): void
+    {
+        $booking = $repo->find($booking_id);
+        if (!$booking) {
+            return;
+        }
+
+        $changed = false;
+        $booking_name = trim((string) ($booking['customer_name'] ?? ''));
+        $booking_email = trim((string) ($booking['customer_email'] ?? ''));
+        $booking_phone = trim((string) ($booking['customer_phone'] ?? ''));
+        $booking_notes = trim((string) ($booking['notes'] ?? ''));
+        $marketing_source = trim((string) $repo->get_meta($booking_id, '_sb_marketing_source'));
+
+        if ($booking_name !== '') {
+            [$first_name, $last_name] = self::split_customer_name($booking_name);
+            if ($first_name !== '' && $order->get_billing_first_name() !== $first_name) {
+                $order->set_billing_first_name($first_name);
+                $changed = true;
+            }
+            if ($last_name !== '' && $order->get_billing_last_name() !== $last_name) {
+                $order->set_billing_last_name($last_name);
+                $changed = true;
+            }
+        }
+
+        if ($booking_email !== '' && $order->get_billing_email() !== $booking_email) {
+            $order->set_billing_email($booking_email);
+            $changed = true;
+        }
+
+        if ($booking_phone !== '' && $order->get_billing_phone() !== $booking_phone) {
+            $order->set_billing_phone($booking_phone);
+            $changed = true;
+        }
+
+        $contact_payload = [
+            'booking_id' => $booking_id,
+            'name' => $booking_name,
+            'email' => $booking_email,
+            'phone' => $booking_phone,
+            'notes' => $booking_notes,
+            'marketing_source' => $marketing_source,
+        ];
+
+        $order->update_meta_data('_sb_booking_contact', wp_json_encode($contact_payload));
+
+        if ($booking_notes !== '') {
+            $order->update_meta_data('_sb_booking_notes', $booking_notes);
+            if ($order->get_customer_note() !== $booking_notes) {
+                $order->set_customer_note($booking_notes);
+                $changed = true;
+            }
+        }
+
+        if ($marketing_source !== '') {
+            $order->update_meta_data('_sb_marketing_source', $marketing_source);
+        }
+
+        $order->save();
+    }
+
+    /**
+     * Split a full customer name into first and last parts.
+     */
+    private static function split_customer_name(string $full_name): array
+    {
+        $full_name = trim(preg_replace('/\s+/', ' ', $full_name) ?? '');
+        if ($full_name === '') {
+            return ['', ''];
+        }
+
+        $parts = preg_split('/\s+/', $full_name) ?: [];
+        if (count($parts) === 1) {
+            return [$parts[0], ''];
+        }
+
+        $first_name = array_shift($parts);
+        $last_name = implode(' ', $parts);
+
+        return [$first_name ?: '', $last_name ?: ''];
     }
 
     /**
@@ -153,7 +644,6 @@ final class WooCommerceIntegration
             return;
         }
 
-        global $wp_query;
         $order_id = get_query_var('order-received');
         if (!$order_id || !is_numeric($order_id)) {
             return;
@@ -175,7 +665,7 @@ final class WooCommerceIntegration
         if ($booking && $booking['status'] === 'in_review') {
             $confirmation_url = home_url('/space-booking/?booking_id=' . $booking_id . '&status=in_review');
             error_log('SpaceBooking WC late_redirect: Redirecting order #' . $order_id . ' → ' . $confirmation_url);
-            wp_redirect($confirmation_url);
+            wp_safe_redirect($confirmation_url);
             exit;
         }
     }
@@ -253,7 +743,7 @@ final class WooCommerceIntegration
                 $pending_id
             );
             error_log('SpaceBooking WC populate success for #' . $pending_id);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             error_log('SpaceBooking WC populate failed for #' . $pending_id . ': ' . $e->getMessage());
         }
 
@@ -268,65 +758,57 @@ final class WooCommerceIntegration
      */
     public static function save_order_meta($order_id, $posted_data, $order)
     {
-        error_log('SpaceBooking WC: save_order_meta called for order #' . $order_id);
-
-        // Direct check session/transient for recent booking
-        $session_booking = WC()->session ? WC()->session->get('sb_pending_booking_id') : null;
-        if ($session_booking) {
-            $order->update_meta_data('_sb_booking_id', $session_booking);
-            $order->save();
-            error_log('SpaceBooking WC: Saved session booking_id ' . $session_booking . ' to order #' . $order_id);
-            WC()->session->set('sb_pending_booking_id', null);
-            return;
-        }
-
-        // Fallback existing meta
-        $existing_booking_id = $order->get_meta('_sb_booking_id');
-        if ($existing_booking_id) {
-            error_log('SpaceBooking WC: Booking ID already in order meta: ' . $existing_booking_id);
-            return;
-        }
-
+        $booking_id = null;
+        $snapshot = null;
         $enriched_breakdown = null;
 
-        // Loop ALL line items (including fees, shipping, etc.)
         foreach ($order->get_items() as $item) {
-            $booking_id = $item->get_meta('sb_booking_id', true);
-            if ($booking_id) {
-                $order->update_meta_data('_sb_booking_id', $booking_id);
-                $order->save();
-                error_log('SpaceBooking WC: Saved from line item booking_id ' . $booking_id . ' to order #' . $order_id);
-
-                $enriched = $item->get_meta('sb_price_breakdown_enriched', true);
-                if ($enriched) {
-                    $enriched_breakdown = $enriched;
-                }
-                break;
+            $line_booking_id = (int) $item->get_meta('sb_booking_id', true);
+            if ($line_booking_id > 0) {
+                $booking_id = $line_booking_id;
             }
+
+            $line_snapshot = $item->get_meta(self::SNAPSHOT_KEY, true);
+            if (is_string($line_snapshot) && $line_snapshot !== '') {
+                $snapshot = $line_snapshot;
+            }
+
+            $line_breakdown = $item->get_meta('sb_price_breakdown_enriched', true);
+            if ($line_breakdown) {
+                $enriched_breakdown = $line_breakdown;
+            }
+        }
+
+        if (!$booking_id && WC()->session) {
+            $session_booking_id = (int) WC()->session->get('sb_booking_id');
+            if ($session_booking_id > 0) {
+                $booking_id = $session_booking_id;
+            }
+        }
+
+        if ($booking_id) {
+            $order->update_meta_data('_sb_booking_id', $booking_id);
+        }
+
+        if ($snapshot !== null) {
+            $order->update_meta_data('_sb_price_snapshot_v1', $snapshot);
         }
 
         if ($enriched_breakdown) {
             $order->update_meta_data('_sb_price_breakdown_enriched', $enriched_breakdown);
-            $order->save();
-            error_log('SpaceBooking WC: Saved enriched breakdown to order #' . $order_id);
         }
 
-        // Fallback: check order TAXABLE line item meta directly
-        $order_items = $order->get_items('line_item');
-        foreach ($order_items as $item_id => $item) {
-            $item_meta = $item->get_meta_data();
-            foreach ($item_meta as $meta) {
-                if ($meta->key === 'sb_booking_id') {
-                    $booking_id = $meta->value;
-                    $order->update_meta_data('_sb_booking_id', $booking_id);
-                    $order->save();
-                    error_log('SpaceBooking WC: Saved from TAXABLE line item meta booking_id ' . $booking_id . ' to order #' . $order_id);
-                    return;
-                }
+        $order->update_meta_data('_sb_checkout_model', 'reusable_product_v1');
+        $order->save();
+
+        if ($booking_id) {
+            $repo = new BookingRepository();
+            $repo->link_order((int) $booking_id, (int) $order_id);
+            self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
+            if (WC()->session) {
+                WC()->session->set('sb_pending_booking_id', null);
             }
         }
-
-        error_log('SpaceBooking WC: No booking_id found in order #' . $order_id);
     }
 
     /**
@@ -334,19 +816,26 @@ final class WooCommerceIntegration
      */
     public static function handle_thankyou_redirect($order_id)
     {
-        $order = wc_get_order($order_id);
-        if (!$order)
+        $order_id = absint($order_id);
+        if ($order_id <= 0) {
             return;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
 
         $booking_id = self::get_booking_id_from_order($order);
-        if (!$booking_id)
+        if (!$booking_id) {
             return;
+        }
 
         $repo = new \SpaceBooking\Services\BookingRepository();
         $booking = $repo->find((int) $booking_id);
         if ($booking && $booking['status'] === 'in_review') {
             $confirmation_url = home_url('/space-booking/?booking_id=' . $booking_id . '&status=in_review');
-            wp_redirect($confirmation_url);
+            wp_safe_redirect($confirmation_url);
             exit;
         }
     }
@@ -380,6 +869,7 @@ final class WooCommerceIntegration
         }
 
         // Sync billing details from WooCommerce order if booking lacks customer info
+        self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
         self::sync_billing_details_to_booking($order, $booking_id, $repo);
 
         if ($booking['status'] === 'pending') {
@@ -410,6 +900,8 @@ final class WooCommerceIntegration
         $needs_update = false;
         $customer_name = '';
         $customer_email = '';
+        $customer_phone = '';
+        $booking_notes = '';
 
         if (empty($booking['customer_name']) || $booking['customer_name'] === 'Guest' || $booking['customer_name'] === '') {
             // Get billing name from WC order
@@ -444,6 +936,24 @@ final class WooCommerceIntegration
             $customer_email = $booking['customer_email'];
         }
 
+        if (empty($booking['customer_phone']) || $booking['customer_phone'] === '') {
+            $customer_phone = $order->get_billing_phone();
+            if (!empty($customer_phone)) {
+                $needs_update = true;
+            }
+        } else {
+            $customer_phone = $booking['customer_phone'];
+        }
+
+        if (empty($booking['notes']) || $booking['notes'] === '') {
+            $booking_notes = (string) $order->get_customer_note();
+            if (!empty($booking_notes)) {
+                $needs_update = true;
+            }
+        } else {
+            $booking_notes = $booking['notes'];
+        }
+
         if ($needs_update) {
             global $wpdb;
             $result = $wpdb->update(
@@ -451,9 +961,11 @@ final class WooCommerceIntegration
                 [
                     'customer_name' => $customer_name,
                     'customer_email' => $customer_email,
+                    'customer_phone' => $customer_phone,
+                    'notes' => $booking_notes,
                 ],
                 ['id' => $booking_id],
-                ['%s', '%s'],
+                ['%s', '%s', '%s', '%s'],
                 ['%d']
             );
 

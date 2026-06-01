@@ -80,8 +80,6 @@ jQuery(document).ready(function($) {
             processData: false,
             contentType: false,
             success: function(res) {
-                console.log('AJAX response:', res); // Debug
-
                 if (res.success) {
                     $('#sb-import-status').addClass('sb-success').html('✓ ' + (res.data
                         .message || res.data));

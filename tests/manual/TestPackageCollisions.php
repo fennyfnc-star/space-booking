@@ -9,7 +9,7 @@
  * 2. Redundancy Check: If user selects Package AND individual space already
  *    inside that package, system must identify the overlap
  *
- * Run: http://your-site/wp-content/plugins/space-booking/tests/TestPackageCollisions.php
+ * Run: http://your-site/wp-content/plugins/space-booking/tests/manual/TestPackageCollisions.php
  */
 
 // Bootstrap WordPress
@@ -17,8 +17,8 @@ define('ABSPATH', 'C:/xampp/htdocs/kukoolala/');
 define('WP_DEBUG', true);
 require_once ABSPATH . 'wp-load.php';
 
-require_once dirname(__FILE__) . '/../space-booking.php';
-require_once dirname(__FILE__) . '/../includes/Plugin.php';
+require_once dirname(__FILE__) . '/../../space-booking.php';
+require_once dirname(__FILE__) . '/../../includes/Plugin.php';
 
 \spaceBooking\Plugin::instance()->boot();
 

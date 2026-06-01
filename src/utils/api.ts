@@ -7,6 +7,7 @@ import type {
   PricingResponse,
   SelectedExtra,
   Space,
+  PackageThemeMetaField,
 } from "@/types";
 
 const BASE = () => window.sbConfig.apiBase;
@@ -56,14 +57,12 @@ export const fetchMultiAvailability = (
   date: string,
   packageIds: number[] = []
 ) => {
-  console.log("📡 API fetchMultiAvailability - spaceIds:", spaceIds, "packageIds:", packageIds, "date:", date);
   const qs = new URLSearchParams();
   qs.set("date", date);
   spaceIds.forEach((id) => qs.append("space_ids[]", String(id)));
   // NEW: Pass package_ids for conflict detection
   packageIds.forEach((id) => qs.append("package_ids[]", String(id)));
   const url = `/availability/multi?${qs.toString()}`;
-  console.log("📡 API URL:", url);
   return apiFetch<AvailabilityResponse>(url);
 };
 
@@ -93,6 +92,7 @@ export const fetchPricing = (params: {
   end_time: string;
   extras?: SelectedExtra[];
   package_id?: number;
+  package_ids?: number[];
   slot_id?: string;
 }) => {
   const qs = new URLSearchParams();
@@ -101,7 +101,11 @@ export const fetchPricing = (params: {
   qs.set("date", params.date);
   qs.set("start_time", params.start_time);
   qs.set("end_time", params.end_time);
-  if (params.package_id) qs.set("package_id", String(params.package_id));
+  if (params.package_ids && params.package_ids.length > 0) {
+    params.package_ids.forEach((id) => qs.append("package_ids[]", String(id)));
+  } else if (params.package_id) {
+    qs.set("package_id", String(params.package_id));
+  }
   if (params.slot_id) qs.set("slot_id", params.slot_id);
   (params.extras ?? []).forEach((e, i) => {
     qs.set(`extras[${i}][extra_id]`, String(e.extra_id));
@@ -124,8 +128,19 @@ export const createBooking = (payload: {
   customer_email: string;
   customer_phone?: string;
   notes?: string;
+  website_url?: string;
+  form_started_at?: number;
+  recaptcha_token?: string;
   extras?: SelectedExtra[];
   price_breakdown?: PriceBreakdownItem[];
+  package_question_answers?: Array<{
+    package_id: number;
+    field_key: string;
+    field_label: string;
+    field_type: PackageThemeMetaField["type"];
+    value: string | number | string[];
+    others_text?: string;
+  }>;
 }) =>
   apiFetch<BookingCreateResponse>("/bookings", {
     method: "POST",
@@ -149,6 +164,11 @@ export const fetchCustomerBookings = (token: string) =>
 
 export const checkCartHasBooking = () =>
   apiFetch<{ hasCartBooking: boolean }>("/cart/has-booking");
+
+export const clearCartBooking = () =>
+  apiFetch<{ cleared: boolean; message?: string }>("/cart/clear-booking", {
+    method: "POST",
+  });
 
 import type { ResourceFootprint } from "@/types";
 

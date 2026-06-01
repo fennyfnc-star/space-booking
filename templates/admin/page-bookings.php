@@ -61,7 +61,7 @@ function sb_format_time_12hour(string $time): string
 
 .sb-calendar-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(7, 1fr);
     gap: 12px;
 }
 
@@ -107,6 +107,11 @@ function sb_format_time_12hour(string $time): string
 .sb-status--in_review {
     background: #cce5ff;
     color: #004085;
+}
+
+.sb-status--trashed {
+    background: #f8d7da;
+    color: #842029;
 }
 
 .sb-month-section {
@@ -160,6 +165,7 @@ function sb_format_time_12hour(string $time): string
                 <option value="confirmed" <?php selected($_GET['status'] ?? '', 'confirmed'); ?>>Confirmed</option>
                 <option value="in_review" <?php selected($_GET['status'] ?? '', 'in_review'); ?>>In Review</option>
                 <option value="pending" <?php selected($_GET['status'] ?? '', 'pending'); ?>>Pending</option>
+                <option value="trashed" <?php selected($_GET['status'] ?? '', 'trashed'); ?>>Trashed</option>
             </select>
             <select name="space_id">
                 <option value=""><?php esc_html_e('All Spaces', 'space-booking'); ?></option>
@@ -188,6 +194,8 @@ function sb_format_time_12hour(string $time): string
             if ($status_input) {
                 $where[] = 'b.status = %s';
                 $params[] = $status_input;
+            } else {
+                $where[] = "b.status != 'trashed'";
             }
             $space_id_input = $_GET['space_id'] ?? '';
             $space_id = absint($space_id_input);
