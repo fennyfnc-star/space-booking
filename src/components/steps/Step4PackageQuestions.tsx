@@ -13,6 +13,9 @@ type PackageQuestionEntry = {
 const answerKeyFor = (packageId: number, fieldKey: string) =>
   `pkg_${packageId}__${fieldKey}`;
 
+const hasOthersSelected = (value: string | number | string[] | undefined): boolean =>
+  Array.isArray(value) ? value.includes("Others") : value === "Others";
+
 export function Step4PackageQuestions() {
   const {
     selectedItems,
@@ -42,11 +45,12 @@ export function Step4PackageQuestions() {
     value: string | number | string[],
     othersText?: string,
   ) => {
-    setPackageQuestionAnswer(key, value, othersText);
+    const othersSelected = hasOthersSelected(value);
+    setPackageQuestionAnswer(key, value, othersSelected ? othersText : "");
     setErrors((prev) => {
       const next = { ...prev };
       delete next[key];
-      if (othersText !== undefined) {
+      if (!othersSelected || othersText !== undefined) {
         delete next[`${key}__others`];
       }
       return next;
