@@ -24,6 +24,14 @@ final class CartController extends WP_REST_Controller
                 'permission_callback' => '__return_true',
             ],
         ]);
+
+        register_rest_route($this->namespace, '/cart/clear-booking', [
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'clear_cart_booking'],
+                'permission_callback' => '__return_true',
+            ],
+        ]);
     }
 
     public function has_cart_booking(WP_REST_Request $request): WP_REST_Response
@@ -44,5 +52,23 @@ final class CartController extends WP_REST_Controller
         }
 
         return new WP_REST_Response(['hasCartBooking' => false], 200);
+    }
+
+    public function clear_cart_booking(WP_REST_Request $request): WP_REST_Response
+    {
+        if (!function_exists('WC') || !WC()) {
+            return new WP_REST_Response(['cleared' => false, 'message' => 'WooCommerce not available.'], 200);
+        }
+
+        if (WC()->cart) {
+            WC()->cart->empty_cart();
+        }
+
+        if (WC()->session) {
+            WC()->session->set('sb_booking_id', null);
+            WC()->session->set('sb_pending_booking_id', null);
+        }
+
+        return new WP_REST_Response(['cleared' => true], 200);
     }
 }

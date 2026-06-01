@@ -41,25 +41,57 @@ final class WooCommerceService
         }
 
         $product_id = $this->get_or_create_reusable_product_id();
-        $cart_item_data = [
-            'sb_booking_id' => $booking_id,
-            'sb_checkout_model' => self::CHECKOUT_MODEL,
-            self::SNAPSHOT_KEY => $snapshot_json,
-            'sb_cart_price' => (float) $snapshot['total'],
-            'sb_display_title' => $snapshot['title'],
-            'sb_space_ids' => wp_json_encode($booking_data['space_ids'] ?? []),
-            'sb_package_ids' => wp_json_encode($booking_data['package_ids'] ?? []),
-            'sb_selected_item_ids' => wp_json_encode($booking_data['selected_item_ids'] ?? []),
-            'sb_date' => (string) ($booking_data['date'] ?? ''),
-            'sb_start_time' => (string) ($booking_data['start_time'] ?? ''),
-            'sb_end_time' => (string) ($booking_data['end_time'] ?? ''),
-            'sb_extras' => wp_json_encode($booking_data['extras'] ?? []),
-        ];
+        $line_items = is_array($snapshot['line_items'] ?? null) ? $snapshot['line_items'] : [];
+        if (empty($line_items)) {
+            $line_items = [[
+                'type' => 'booking',
+                'reference_id' => 0,
+                'label' => $snapshot['title'],
+                'quantity' => 1,
+                'unit_price' => (float) $snapshot['total'],
+                'line_total' => (float) $snapshot['total'],
+            ]];
+        }
 
         wc_clear_notices();
-        $cart_key = WC()->cart->add_to_cart($product_id, 1, 0, [], $cart_item_data);
-        if (!$cart_key) {
-            throw new \RuntimeException('Failed to add booking to cart.');
+        $added_count = 0;
+        foreach ($line_items as $index => $line) {
+            $line_total = (float) ($line['line_total'] ?? 0);
+            if ($line_total <= 0) {
+                continue;
+            }
+
+            $line_label = sanitize_text_field((string) ($line['label'] ?? 'Booking Item'));
+            $line_type = sanitize_text_field((string) ($line['type'] ?? 'item'));
+
+            $cart_item_data = [
+                'sb_booking_id' => $booking_id,
+                'sb_checkout_model' => self::CHECKOUT_MODEL,
+                self::SNAPSHOT_KEY => $snapshot_json,
+                'sb_cart_price' => $line_total,
+                'sb_display_title' => $line_label,
+                'sb_line_type' => $line_type,
+                'sb_line_reference_id' => (int) ($line['reference_id'] ?? 0),
+                'sb_space_ids' => wp_json_encode($booking_data['space_ids'] ?? []),
+                'sb_package_ids' => wp_json_encode($booking_data['package_ids'] ?? []),
+                'sb_selected_item_ids' => wp_json_encode($booking_data['selected_item_ids'] ?? []),
+                'sb_date' => (string) ($booking_data['date'] ?? ''),
+                'sb_start_time' => (string) ($booking_data['start_time'] ?? ''),
+                'sb_end_time' => (string) ($booking_data['end_time'] ?? ''),
+                'sb_extras' => wp_json_encode($booking_data['extras'] ?? []),
+                'sb_breakdown' => wp_json_encode([$line]),
+                // Prevent WooCommerce from merging lines with same product ID.
+                'sb_line_key' => md5($booking_id . '|' . $index . '|' . $line_label . '|' . $line_total),
+            ];
+
+            $cart_key = WC()->cart->add_to_cart($product_id, 1, 0, [], $cart_item_data);
+            if ($cart_key) {
+                $added_count++;
+            }
+        }
+
+        if ($added_count === 0) {
+            throw new \RuntimeException('Failed to add booking line items to cart.');
         }
 
         $actual_total = (float) WC()->cart->get_total('edit');
@@ -93,6 +125,9 @@ final class WooCommerceService
         }
         if (isset($values['sb_display_title'])) {
             $item->add_meta_data('sb_display_title', sanitize_text_field((string) $values['sb_display_title']));
+        }
+        if (isset($values['sb_breakdown'])) {
+            $item->add_meta_data('sb_breakdown', (string) $values['sb_breakdown']);
         }
     }
 

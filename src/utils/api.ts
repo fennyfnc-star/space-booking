@@ -165,6 +165,11 @@ export const fetchCustomerBookings = (token: string) =>
 export const checkCartHasBooking = () =>
   apiFetch<{ hasCartBooking: boolean }>("/cart/has-booking");
 
+export const clearCartBooking = () =>
+  apiFetch<{ cleared: boolean; message?: string }>("/cart/clear-booking", {
+    method: "POST",
+  });
+
 import type { ResourceFootprint } from "@/types";
 
 export const fetchConflicts = (itemId: number, type: "space" | "package") =>

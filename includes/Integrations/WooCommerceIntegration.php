@@ -29,6 +29,7 @@ final class WooCommerceIntegration
         add_action('woocommerce_before_calculate_totals', [self::class, 'apply_snapshot_cart_prices'], 50, 1);
         add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 10, 3);
         add_filter('woocommerce_get_item_data', [self::class, 'render_cart_item_data'], 10, 2);
+        add_action('woocommerce_review_order_before_cart_contents', [self::class, 'render_checkout_order_summary_breakdown'], 20);
         // Late redirect check after all payment hooks
         add_action('wp_footer', [self::class, 'late_redirect_check'], 9999);
 
@@ -104,6 +105,202 @@ final class WooCommerceIntegration
         }
 
         return $item_data;
+    }
+
+    /**
+     * Inject booking breakdown HTML rows directly into checkout Order Summary.
+     */
+    public static function render_checkout_order_summary_breakdown(): void
+    {
+        if (!function_exists('WC') || !WC() || !WC()->cart) {
+            return;
+        }
+
+        $schedule_row = null;
+        $rows = [];
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            if ($schedule_row === null) {
+                $schedule_row = self::build_schedule_row($cart_item);
+            }
+
+            $booking_id = absint($cart_item['sb_booking_id'] ?? 0);
+            $breakdown = $booking_id > 0
+                ? self::resolve_breakdown_for_cart_item($cart_item, $booking_id)
+                : self::resolve_breakdown_for_cart_item($cart_item, 0);
+            foreach ($breakdown as $line) {
+                $label = sanitize_text_field((string) ($line['label'] ?? ''));
+                $amount = isset($line['amount']) ? (float) $line['amount'] : null;
+                if ($label === '' || $amount === null) {
+                    continue;
+                }
+                $rows[] = [
+                    'label' => $label,
+                    'amount' => $amount,
+                ];
+            }
+        }
+
+        if ($schedule_row === null && empty($rows)) {
+            return;
+        }
+
+        if ($schedule_row !== null) {
+            echo '<tr class="sb-booking-schedule-row">';
+            echo '<td colspan="2" style="background-color:#fcfaff;padding:15px;border:1px solid #e0d1f0;border-radius:5px;">';
+            echo '<span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7a56a5;font-weight:700;margin-bottom:5px;">' . esc_html__('Your Booking Schedule', 'space-booking') . '</span>';
+            echo '<strong style="color:#333;">' . esc_html__('Date:', 'space-booking') . '</strong> ' . esc_html($schedule_row['date']) . '<br>';
+            echo '<strong style="color:#333;">' . esc_html__('Time:', 'space-booking') . '</strong> ' . esc_html($schedule_row['time']) . '';
+            echo '</td>';
+            echo '</tr>';
+        }
+
+        if (empty($rows)) {
+            return;
+        }
+
+        echo '<tr class="sb-breakdown-heading"><th colspan="2" style="padding-top:12px;">' . esc_html__('Booking Price Breakdown', 'space-booking') . '</th></tr>';
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $total += (float) $row['amount'];
+            echo '<tr class="sb-breakdown-row">';
+            echo '<th>' . esc_html($row['label']) . '</th>';
+            echo '<td>' . wp_kses_post(wc_price((float) $row['amount'])) . '</td>';
+            echo '</tr>';
+        }
+        echo '<tr class="sb-breakdown-total" style="font-weight:700;border-top:1px solid #ddd;">';
+        echo '<th>' . esc_html__('Total', 'space-booking') . '</th>';
+        echo '<td>' . wp_kses_post(wc_price($total)) . '</td>';
+        echo '</tr>';
+    }
+
+    private static function build_schedule_row(array $cart_item): ?array
+    {
+        $raw_date = trim((string) ($cart_item['sb_date'] ?? ''));
+        if ($raw_date === '') {
+            return null;
+        }
+
+        $start_raw = trim((string) ($cart_item['sb_start_time'] ?? ''));
+        $end_raw = trim((string) ($cart_item['sb_end_time'] ?? ''));
+
+        $date_ts = strtotime($raw_date);
+        $start_ts = $start_raw !== '' ? strtotime($start_raw) : false;
+        $end_ts = $end_raw !== '' ? strtotime($end_raw) : false;
+
+        $formatted_date = $date_ts ? wp_date('F j, Y', $date_ts) : $raw_date;
+        $formatted_start = $start_ts ? wp_date('g:i A', $start_ts) : $start_raw;
+        $formatted_end = $end_ts ? wp_date('g:i A', $end_ts) : $end_raw;
+
+        $formatted_time = trim($formatted_start . ' - ' . $formatted_end, ' -');
+        if ($formatted_time === '') {
+            $formatted_time = esc_html__('N/A', 'space-booking');
+        }
+
+        return [
+            'date' => $formatted_date,
+            'time' => $formatted_time,
+        ];
+    }
+
+    private static function extract_include_labels_from_breakdown_json(string $json): array
+    {
+        if ($json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return self::extract_include_labels_from_breakdown_array($decoded);
+    }
+
+    private static function resolve_breakdown_for_cart_item(array $cart_item, int $booking_id): array
+    {
+        $breakdown = [];
+        $sb_breakdown = (string) ($cart_item['sb_breakdown'] ?? '');
+        if ($sb_breakdown !== '') {
+            $decoded = json_decode($sb_breakdown, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        $snapshot_json = (string) ($cart_item[self::SNAPSHOT_KEY] ?? '');
+        if ($snapshot_json !== '') {
+            $snapshot = json_decode($snapshot_json, true);
+            if (is_array($snapshot) && is_array($snapshot['line_items'] ?? null)) {
+                foreach ($snapshot['line_items'] as $line) {
+                    if (!is_array($line)) {
+                        continue;
+                    }
+                    $breakdown[] = [
+                        'label' => (string) ($line['label'] ?? ''),
+                        'amount' => (float) ($line['line_total'] ?? 0),
+                    ];
+                }
+                if (!empty($breakdown)) {
+                    return $breakdown;
+                }
+            }
+        }
+
+        if ($booking_id > 0) {
+            $repo = new BookingRepository();
+            $enriched = $repo->get_meta($booking_id, '_sb_price_breakdown_enriched');
+            if (is_string($enriched) && $enriched !== '') {
+                $decoded = json_decode($enriched, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            $raw = $repo->get_meta($booking_id, '_sb_price_breakdown');
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private static function extract_include_labels_from_snapshot_json(string $json): array
+    {
+        if ($json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded) || !is_array($decoded['line_items'] ?? null)) {
+            return [];
+        }
+        $labels = [];
+        foreach ($decoded['line_items'] as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = $label;
+            }
+        }
+        return array_values(array_unique($labels));
+    }
+
+    private static function extract_include_labels_from_breakdown_array(array $breakdown): array
+    {
+        $labels = [];
+        foreach ($breakdown as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = $label;
+            }
+        }
+        return array_values(array_unique($labels));
     }
 
     // public static function add_confirmation_action($actions, $order)
