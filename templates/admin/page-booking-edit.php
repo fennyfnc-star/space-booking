@@ -175,6 +175,8 @@ if ($linked_order) {
     }
     $checkout_additional_notes = trim((string) $linked_order->get_customer_note());
 }
+$notes_are_duplicate = ($customer_notes !== '' && $checkout_additional_notes !== '')
+    && mb_strtolower(trim($customer_notes)) === mb_strtolower(trim($checkout_additional_notes));
 
 $order_number = $linked_order ? (string) $linked_order->get_order_number() : '';
 $order_status = $linked_order ? wc_get_order_status_name($linked_order->get_status()) : '';
@@ -563,7 +565,7 @@ if (!empty($audit_log_entries)) {
             <?php if ($customer_notes !== ''): ?>
             <div style="grid-column: 1 / -1;"><strong>Booking Notes:</strong> <?php echo esc_html($customer_notes); ?></div>
             <?php endif; ?>
-            <?php if ($checkout_additional_notes !== ''): ?>
+            <?php if ($checkout_additional_notes !== '' && !$notes_are_duplicate): ?>
             <div style="grid-column: 1 / -1;"><strong>WooCommerce Additional Notes:</strong> <?php echo esc_html($checkout_additional_notes); ?></div>
             <?php endif; ?>
             <?php if ($marketing_source !== ''): ?>

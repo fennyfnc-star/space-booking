@@ -249,6 +249,14 @@ class BookingRepository
 			$package_id = (int) $data['package_ids'][0];
 		}
 
+		// Package-only bookings: resolve lead space from package so sb_bookings.space_id is never NULL.
+		if ((empty($space_id) || (int) $space_id <= 0) && !empty($package_id)) {
+			$resolved_space_id = (int) get_post_meta((int) $package_id, '_sb_package_space_id', true);
+			if ($resolved_space_id > 0) {
+				$space_id = $resolved_space_id;
+			}
+		}
+
 		// NOTE: The 'extras' column was removed from insert because it's not in the database schema.
 		// Extras are stored separately in the sb_booking_extras table via save_extras() call below.
 		$result = $wpdb->insert(

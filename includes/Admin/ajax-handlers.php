@@ -371,6 +371,8 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     // Customer notes from both booking and order.
     $booking_note = trim((string) ($booking['notes'] ?? ''));
     $order_note = ($order instanceof WC_Order) ? trim((string) $order->get_customer_note()) : '';
+    $notes_are_duplicate = ($booking_note !== '' && $order_note !== '')
+        && mb_strtolower(trim($booking_note)) === mb_strtolower(trim($order_note));
     $customer_notes_html = '';
     if ($booking_note !== '' || $order_note !== '') {
         $customer_notes_html .= '<div style="margin-top:20px;padding:15px;background:#fafafa;border-left:4px solid ' . esc_attr($accent_color) . ';">';
@@ -378,7 +380,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         if ($booking_note !== '') {
             $customer_notes_html .= '<p style="margin:0 0 6px;font-size:13px;color:#666;"><strong>' . esc_html__('Booking form:', 'space-booking') . '</strong><br>' . nl2br(esc_html($booking_note)) . '</p>';
         }
-        if ($order_note !== '') {
+        if ($order_note !== '' && !$notes_are_duplicate) {
             $customer_notes_html .= '<p style="margin:0;font-size:13px;color:#666;"><strong>' . esc_html__('Checkout note:', 'space-booking') . '</strong><br>' . nl2br(esc_html($order_note)) . '</p>';
         }
         $customer_notes_html .= '</div>';
@@ -459,12 +461,16 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
             $product = $item->get_product();
             $image_id = $product ? $product->get_image_id() : 0;
             $image_url = $image_id ? (wp_get_attachment_image_url($image_id, 'thumbnail') ?: wc_placeholder_img_src()) : wc_placeholder_img_src();
+            $item_name = trim(sanitize_text_field((string) $item->get_name()));
+            if ($item_name === '' || preg_match('/^[\)\]\}\-–—\s]+$/u', $item_name)) {
+                $item_name = __('Booking Item', 'space-booking');
+            }
             $order_items_html .= "
             <tr>
                 <td style='text-align:left; border-bottom: 1px solid #eee; padding:12px; vertical-align: middle;'>
                     <img src='" . esc_url($image_url) . "' width='40' height='40' style='vertical-align:middle; margin-right: 10px; border-radius:4px;'>
                     <span style='display:inline-block; vertical-align:middle;'>
-                        <strong>" . esc_html($item->get_name()) . "</strong> × " . esc_html((string) $item->get_quantity()) . "
+                        <strong>" . esc_html($item_name) . "</strong> × " . esc_html((string) $item->get_quantity()) . "
                     </span>
                 </td>
                 <td style='text-align:right; border-bottom: 1px solid #eee; padding:12px; vertical-align: middle;'>" . wp_kses_post(wc_price((float) $item->get_total())) . "</td>

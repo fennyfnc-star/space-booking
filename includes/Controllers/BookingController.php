@@ -252,17 +252,26 @@ final class BookingController extends WP_REST_Controller
 		}
 
 		// NEW SCHEMA: Validate all package IDs exist and are published
+		$resolved_package_space_ids = [];
 		foreach ($package_ids as $pid) {
 			$post = get_post($pid);
 			if (!$post || $post->post_type !== 'sb_package' || $post->post_status !== 'publish') {
 				return new WP_REST_Response(['message' => 'Invalid package ID: ' . $pid], 422);
 			}
+			$pkg_space_id = (int) get_post_meta($pid, '_sb_package_space_id', true);
+			if ($pkg_space_id > 0) {
+				$resolved_package_space_ids[] = $pkg_space_id;
+			}
 		}
+		$resolved_package_space_ids = array_values(array_unique(array_map('intval', $resolved_package_space_ids)));
 
 		// ── Guard: time window still available (check ALL selected spaces) ──
 		// FIXED: Use selected_item_ids directly instead of get_conflict_groups()
 		// CONSOLIDATED: Use single get_blocking_intervals() call instead of dual confirmed + pending
-		$footprint_spaces = $selected_item_ids;
+		$footprint_spaces = array_values(array_unique(array_merge($space_ids, $resolved_package_space_ids)));
+		if (empty($footprint_spaces)) {
+			$footprint_spaces = $selected_item_ids;
+		}
 		$blocking = $this->repo->get_blocking_intervals($footprint_spaces, $date);
 		foreach ($blocking as $b) {
 			if ($start_time < $b['end'] && $end_time > $b['start']) {
