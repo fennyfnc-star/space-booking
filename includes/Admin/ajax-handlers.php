@@ -40,6 +40,25 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     $selected_items = is_array($booking['_selected_items'] ?? null) ? $booking['_selected_items'] : [];
     $extras_details = is_array($booking['_extras_details'] ?? null) ? $booking['_extras_details'] : [];
     $price_breakdown = is_array($booking['_price_breakdown'] ?? null) ? $booking['_price_breakdown'] : [];
+    if (empty($price_breakdown)) {
+        $snapshot = is_array($booking['_price_snapshot_v1'] ?? null) ? $booking['_price_snapshot_v1'] : [];
+        $snapshot_lines = is_array($snapshot['line_items'] ?? null) ? $snapshot['line_items'] : [];
+        foreach ($snapshot_lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $label = trim((string) ($line['label'] ?? ''));
+            $amount = isset($line['line_total']) ? (float) $line['line_total'] : 0.0;
+            if ($label === '') {
+                continue;
+            }
+            $price_breakdown[] = [
+                'label' => $label,
+                'amount' => $amount,
+                'type' => (string) ($line['type'] ?? ''),
+            ];
+        }
+    }
     $meta_data = is_array($booking['_meta_data'] ?? null) ? $booking['_meta_data'] : [];
 
     // Format time/date.
