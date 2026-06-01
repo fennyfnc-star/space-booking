@@ -805,6 +805,7 @@ jQuery(document).ready(function($) {
         $.post(ajaxurl, {
             action: 'sb_resend_booking_confirmation_email',
             booking_id: <?php echo $booking_id; ?>,
+            feedback: $('#feedback').val(),
             _wpnonce: '<?php echo wp_create_nonce('sb_update_booking'); ?>'
         }, function(res) {
             if (res.success) {

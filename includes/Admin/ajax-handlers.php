@@ -8,7 +8,7 @@
  * @param string $admin_feedback Optional admin feedback message
  * @return bool True if email sent successfully
  */
-function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedback = ''): bool {
+function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedback = '', ?string $status_override = null): bool {
     global $wpdb;
     
     $repo = new \SpaceBooking\Services\BookingRepository();
@@ -100,6 +100,41 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     }
 
     // Build grouped price breakdown by category.
+    $space_titles = [];
+    $package_titles = [];
+    foreach ($selected_items as $item) {
+        $item_title = trim((string) ($item['title'] ?? ''));
+        if ($item_title === '') {
+            continue;
+        }
+        if ((string) ($item['type'] ?? '') === 'sb_space') {
+            $space_titles[] = $item_title;
+        } elseif ((string) ($item['type'] ?? '') === 'sb_package') {
+            $package_titles[] = $item_title;
+        }
+    }
+    $extra_titles = [];
+    foreach ($extras_details as $extra) {
+        $extra_title = trim((string) ($extra['extra_name'] ?? $extra['title'] ?? ''));
+        if ($extra_title !== '') {
+            $extra_titles[] = $extra_title;
+        }
+    }
+    $package_inclusion_titles = [];
+    if (is_string($package_inclusions_raw) && $package_inclusions_raw !== '') {
+        $inclusions = json_decode($package_inclusions_raw, true);
+        if (is_array($inclusions)) {
+            foreach ($inclusions as $inc) {
+                if (!is_array($inc)) {
+                    continue;
+                }
+                $inc_title = trim((string) ($inc['title'] ?? $inc['label'] ?? ''));
+                if ($inc_title !== '') {
+                    $package_inclusion_titles[] = $inc_title;
+                }
+            }
+        }
+    }
     $grouped_rows = [
         'space' => [],
         'package' => [],
@@ -117,23 +152,81 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         $label = (string) ($item['label'] ?? $item['name'] ?? __('Line Item', 'space-booking'));
         $amount = isset($item['amount']) ? (float) $item['amount'] : (isset($item['price']) ? (float) $item['price'] : 0.0);
         $context_type = strtolower((string) ($item['context']['type'] ?? ''));
+        $item_type = strtolower((string) ($item['type'] ?? $item['item_type'] ?? ''));
         $target_group = 'other';
 
-        if ($context_type === 'space') {
+        // Prefer exact title-based matching first for more accurate grouping.
+        $matched = false;
+        foreach ($package_titles as $title) {
+            if (stripos($label, $title) !== false) {
+                $target_group = 'package';
+                $matched = true;
+                break;
+            }
+        }
+        if (!$matched) {
+            foreach ($space_titles as $title) {
+                if (stripos($label, $title) !== false) {
+                    $target_group = 'space';
+                    $matched = true;
+                    break;
+                }
+            }
+        }
+        if (!$matched && $context_type === 'space') {
             $target_group = 'space';
-        } elseif ($context_type === 'package') {
+            $matched = true;
+        } elseif (!$matched && $context_type === 'package') {
             $target_group = 'package';
-        } elseif ($context_type === 'extra') {
+            $matched = true;
+        } elseif (!$matched && $context_type === 'extra') {
             $target_group = 'extra';
-        } else {
-            // Legacy fallback inference from label when context is missing.
+            $matched = true;
+        } elseif (!$matched && ($item_type === 'sb_space' || $item_type === 'space')) {
+            $target_group = 'space';
+            $matched = true;
+        } elseif (!$matched && ($item_type === 'sb_package' || $item_type === 'package')) {
+            $target_group = 'package';
+            $matched = true;
+        } elseif (!$matched && ($item_type === 'sb_extra' || $item_type === 'extra')) {
+            $target_group = 'extra';
+            $matched = true;
+        }
+
+        if (!$matched) {
+            // Fallback classification from inclusions/extras and legacy label heuristics.
+            if (!$matched) {
+                foreach ($package_inclusion_titles as $title) {
+                    if (stripos($label, $title) !== false) {
+                        $target_group = 'package';
+                        $matched = true;
+                        break;
+                    }
+                }
+            }
+            if (!$matched) {
+                foreach ($extra_titles as $title) {
+                    if (stripos($label, $title) !== false) {
+                        $target_group = 'extra';
+                        $matched = true;
+                        break;
+                    }
+                }
+            }
+            if ($matched) {
+                // no-op
+            } else {
+                // Legacy fallback inference from label when context is missing.
             $label_lc = strtolower($label);
             if (strpos($label_lc, 'extra') !== false) {
                 $target_group = 'extra';
+            } elseif (strpos($label_lc, 'inclusion') !== false) {
+                $target_group = 'package';
             } elseif (strpos($label_lc, 'package') !== false) {
                 $target_group = 'package';
             } elseif (strpos($label_lc, 'space') !== false) {
                 $target_group = 'space';
+            }
             }
         }
 
@@ -245,7 +338,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         __('Booking Date', 'space-booking') => $date_display,
         __('Booking Time', 'space-booking') => $time_display,
         __('Duration', 'space-booking') => number_format((float) ($booking['duration_hours'] ?? 0), 1) . ' ' . __('hours', 'space-booking'),
-        __('Status', 'space-booking') => (string) ($booking['status'] ?? ''),
+        __('Status', 'space-booking') => (string) ($status_override ?: ($booking['status'] ?? '')),
         __('Booking ID', 'space-booking') => (string) $booking_id,
     ];
     foreach ($booking_fields as $key => $value) {
@@ -430,29 +523,6 @@ add_action('wp_ajax_sb_update_booking_status', function () {
 
     $extra_data = $feedback ? ['admin_feedback' => $feedback] : [];
 
-    // If changing to confirmed, send confirmation email first.
-    $email_sent = true;
-    if ($status === 'confirmed' && $booking['status'] !== 'confirmed') {
-        $email_sent = sb_send_booking_confirmation_email($booking_id, $feedback);
-
-        if (!$email_sent) {
-            $repo->log_audit_event($booking_id, 'confirmation_email_failed', $actor_user_id, [
-                'trigger' => 'status_change',
-                'attempted_status' => 'confirmed',
-            ]);
-            wp_send_json_error([
-                'message' => 'Failed to send confirmation email. Booking status not changed.',
-                'email_failed' => true
-            ]);
-            return;
-        }
-
-        $repo->log_audit_event($booking_id, 'confirmation_email_sent', $actor_user_id, [
-            'trigger' => 'status_change',
-            'result' => 'success',
-        ]);
-    }
-
     $updated = $repo->update_status($booking_id, $status, $extra_data);
 
     if ($updated) {
@@ -460,6 +530,38 @@ add_action('wp_ajax_sb_update_booking_status', function () {
             'from_status' => (string) $booking['status'],
             'to_status' => (string) $status,
         ]);
+
+        // If changed to confirmed, send email after status persist; rollback if send fails.
+        $email_sent = true;
+        if ($status === 'confirmed' && $booking['status'] !== 'confirmed') {
+            if ($feedback !== '' && (string) $repo->get_meta($booking_id, '_sb_first_confirmation_feedback') === '') {
+                $repo->save_meta($booking_id, '_sb_first_confirmation_feedback', $feedback);
+            }
+            $email_sent = sb_send_booking_confirmation_email($booking_id, $feedback, 'confirmed');
+            if (!$email_sent) {
+                $repo->update_status($booking_id, (string) $booking['status']);
+                $repo->log_audit_event($booking_id, 'status_changed', $actor_user_id, [
+                    'from_status' => (string) $status,
+                    'to_status' => (string) $booking['status'],
+                    'reason' => 'email_send_failed_rollback',
+                ]);
+                $repo->log_audit_event($booking_id, 'confirmation_email_failed', $actor_user_id, [
+                    'trigger' => 'status_change',
+                    'attempted_status' => 'confirmed',
+                ]);
+                wp_send_json_error([
+                    'message' => 'Failed to send confirmation email. Booking status was reverted.',
+                    'email_failed' => true
+                ]);
+                return;
+            }
+
+            $repo->log_audit_event($booking_id, 'confirmation_email_sent', $actor_user_id, [
+                'trigger' => 'status_change',
+                'result' => 'success',
+            ]);
+        }
+
         wp_send_json_success([
             'status' => $status,
             'feedback' => $feedback,
@@ -493,7 +595,18 @@ add_action('wp_ajax_sb_resend_booking_confirmation_email', function () {
     }
 
     $actor_user_id = get_current_user_id();
-    $email_sent = sb_send_booking_confirmation_email($booking_id, '');
+    $posted_feedback = sanitize_textarea_field($_POST['feedback'] ?? '');
+    $first_confirmation_feedback = (string) $repo->get_meta($booking_id, '_sb_first_confirmation_feedback');
+    $stored_feedback = (string) $repo->get_meta($booking_id, 'admin_feedback');
+    $feedback_for_email = $posted_feedback !== ''
+        ? $posted_feedback
+        : ($first_confirmation_feedback !== '' ? $first_confirmation_feedback : $stored_feedback);
+
+    if ($posted_feedback !== '') {
+        $repo->save_meta($booking_id, 'admin_feedback', $posted_feedback);
+    }
+
+    $email_sent = sb_send_booking_confirmation_email($booking_id, $feedback_for_email);
     if (!$email_sent) {
         $repo->log_audit_event($booking_id, 'confirmation_email_failed', $actor_user_id, [
             'trigger' => 'manual_resend',
