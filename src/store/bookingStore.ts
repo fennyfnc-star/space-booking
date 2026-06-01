@@ -825,6 +825,7 @@ clearItems: () => set({ selectedItems: [], lockedResourceIds: [], packageCoverag
       const res = await checkCartHasBooking();
       if (res.hasCartBooking) {
         get().reset();
+        set({ hasCartBooking: true });
       } else {
         set({ hasCartBooking: false });
       }

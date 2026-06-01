@@ -27,11 +27,12 @@ final class WooCommerceIntegration
         add_action('woocommerce_order_status_on-hold', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_order_status_completed', [self::class, 'confirm_booking'], 10, 1);
         add_action('woocommerce_before_calculate_totals', [self::class, 'apply_snapshot_cart_prices'], 50, 1);
-        add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 10, 3);
+        add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 999, 3);
         add_filter('woocommerce_get_item_data', [self::class, 'render_cart_item_data'], 10, 2);
         add_action('woocommerce_review_order_before_cart_contents', [self::class, 'render_checkout_order_summary_breakdown'], 20);
-        // Late redirect check after all payment hooks
-        add_action('wp_footer', [self::class, 'late_redirect_check'], 9999);
+        add_action('woocommerce_thankyou', [self::class, 'handle_thankyou_redirect'], 20, 1);
+        // Resolve confirmation redirect before output starts on order-received endpoint.
+        add_action('template_redirect', [self::class, 'late_redirect_check'], 30);
 
         // Line item meta backup
         \SpaceBooking\Services\WooCommerceService::register_hooks();
@@ -66,7 +67,26 @@ final class WooCommerceIntegration
                 continue;
             }
 
-            $cart_item['data']->set_price($line_total);
+            $product = $cart_item['data'];
+            if (!is_object($product)) {
+                continue;
+            }
+
+            // Some checkout templates read product getters directly instead of woocommerce_cart_item_name.
+            // Clone per cart line and set a line-specific name so space/package/extra labels always render.
+            $line_label = trim((string) ($cart_item['sb_display_title'] ?? ''));
+            if ($line_label !== '') {
+                $product = clone $product;
+                if (method_exists($product, 'set_name')) {
+                    $product->set_name(sanitize_text_field($line_label));
+                }
+                if (method_exists($product, 'set_short_description')) {
+                    $product->set_short_description('');
+                }
+                $cart->cart_contents[$cart_item_key]['data'] = $product;
+            }
+
+            $product->set_price($line_total);
             $cart->cart_contents[$cart_item_key]['sb_cart_price'] = $line_total;
         }
     }
@@ -76,8 +96,19 @@ final class WooCommerceIntegration
      */
     public static function render_cart_item_name(string $name, array $cart_item, string $cart_item_key): string
     {
-        if (!empty($cart_item['sb_display_title'])) {
-            return esc_html((string) $cart_item['sb_display_title']);
+        $display_title = trim((string) ($cart_item['sb_display_title'] ?? ''));
+        if ($display_title !== '') {
+            return esc_html($display_title);
+        }
+
+        if (!empty($cart_item['sb_breakdown']) && is_string($cart_item['sb_breakdown'])) {
+            $decoded = json_decode($cart_item['sb_breakdown'], true);
+            if (is_array($decoded) && isset($decoded[0]) && is_array($decoded[0])) {
+                $fallback_label = sanitize_text_field((string) ($decoded[0]['label'] ?? ''));
+                if ($fallback_label !== '') {
+                    return esc_html($fallback_label);
+                }
+            }
         }
 
         return $name;
@@ -88,6 +119,10 @@ final class WooCommerceIntegration
      */
     public static function render_cart_item_data(array $item_data, array $cart_item): array
     {
+        if (function_exists('is_checkout') && is_checkout()) {
+            return $item_data;
+        }
+
         if (empty($cart_item['sb_date'])) {
             return $item_data;
         }
@@ -116,40 +151,32 @@ final class WooCommerceIntegration
             return;
         }
 
-        $schedule_row = null;
-        $rows = [];
-        foreach (WC()->cart->get_cart() as $cart_item) {
-            if ($schedule_row === null) {
-                $schedule_row = self::build_schedule_row($cart_item);
-            }
-
-            $booking_id = absint($cart_item['sb_booking_id'] ?? 0);
-            $breakdown = $booking_id > 0
-                ? self::resolve_breakdown_for_cart_item($cart_item, $booking_id)
-                : self::resolve_breakdown_for_cart_item($cart_item, 0);
-            foreach ($breakdown as $line) {
-                $label = sanitize_text_field((string) ($line['label'] ?? ''));
-                $amount = isset($line['amount']) ? (float) $line['amount'] : null;
-                if ($label === '' || $amount === null) {
-                    continue;
-                }
-                $rows[] = [
-                    'label' => $label,
-                    'amount' => $amount,
-                ];
-            }
+        $cart_items = WC()->cart->get_cart();
+        if (empty($cart_items)) {
+            return;
         }
+
+        $first_cart_item = reset($cart_items);
+        if (!is_array($first_cart_item)) {
+            return;
+        }
+
+        $schedule_row = self::build_schedule_row($first_cart_item);
+        $booking_id = absint($first_cart_item['sb_booking_id'] ?? 0);
+        $rows = self::normalize_breakdown_rows(
+            self::resolve_breakdown_for_cart_item($first_cart_item, $booking_id > 0 ? $booking_id : 0)
+        );
 
         if ($schedule_row === null && empty($rows)) {
             return;
         }
 
         if ($schedule_row !== null) {
-            echo '<tr class="sb-booking-schedule-row">';
+            echo '<tr class="custom-booking-info">';
             echo '<td colspan="2" style="background-color:#fcfaff;padding:15px;border:1px solid #e0d1f0;border-radius:5px;">';
             echo '<span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7a56a5;font-weight:700;margin-bottom:5px;">' . esc_html__('Your Booking Schedule', 'space-booking') . '</span>';
             echo '<strong style="color:#333;">' . esc_html__('Date:', 'space-booking') . '</strong> ' . esc_html($schedule_row['date']) . '<br>';
-            echo '<strong style="color:#333;">' . esc_html__('Time:', 'space-booking') . '</strong> ' . esc_html($schedule_row['time']) . '';
+            echo '<strong style="color:#333;">' . esc_html__('Time:', 'space-booking') . '</strong> ' . esc_html($schedule_row['time']);
             echo '</td>';
             echo '</tr>';
         }
@@ -158,18 +185,28 @@ final class WooCommerceIntegration
             return;
         }
 
-        echo '<tr class="sb-breakdown-heading"><th colspan="2" style="padding-top:12px;">' . esc_html__('Booking Price Breakdown', 'space-booking') . '</th></tr>';
         $total = 0.0;
+        $breakdown_html = '';
         foreach ($rows as $row) {
-            $total += (float) $row['amount'];
-            echo '<tr class="sb-breakdown-row">';
-            echo '<th>' . esc_html($row['label']) . '</th>';
-            echo '<td>' . wp_kses_post(wc_price((float) $row['amount'])) . '</td>';
-            echo '</tr>';
+            $amount = isset($row['amount']) && is_numeric($row['amount']) ? (float) $row['amount'] : 0.0;
+            $total += $amount;
+            $breakdown_html .= '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;">';
+            $breakdown_html .= '<span>' . esc_html($row['label']) . '</span>';
+            $breakdown_html .= '<span>' . esc_html($row['display']) . '</span>';
+            $breakdown_html .= '</div>';
         }
-        echo '<tr class="sb-breakdown-total" style="font-weight:700;border-top:1px solid #ddd;">';
-        echo '<th>' . esc_html__('Total', 'space-booking') . '</th>';
-        echo '<td>' . wp_kses_post(wc_price($total)) . '</td>';
+
+        echo '<tr class="sb-breakdown-container-row">';
+        echo '<td colspan="2">';
+        echo '<div class="sb-breakdown-container" style="margin-top:10px;background:#f8f8f8;padding:12px;border:1px solid #e5e5e5;border-radius:5px;">';
+        echo '<div style="font-weight:700;margin-bottom:6px;">' . esc_html__('Booking Price Breakdown', 'space-booking') . '</div>';
+        echo $breakdown_html;
+        echo '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:8px;margin-top:8px;border-top:1px solid #ddd;font-weight:700;">';
+        echo '<span>' . esc_html__('Total', 'space-booking') . '</span>';
+        echo '<span>' . esc_html(wp_strip_all_tags((string) wc_price($total), true)) . '</span>';
+        echo '</div>';
+        echo '</div>';
+        echo '</td>';
         echo '</tr>';
     }
 
@@ -264,6 +301,50 @@ final class WooCommerceIntegration
         }
 
         return [];
+    }
+
+    private static function normalize_breakdown_rows(array $breakdown): array
+    {
+        $rows = [];
+        foreach ($breakdown as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $label = sanitize_text_field((string) ($line['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+
+            $formatted = sanitize_text_field((string) ($line['formatted'] ?? ''));
+            if ($formatted !== '') {
+                $rows[] = [
+                    'label' => $label,
+                    'display' => $formatted,
+                    'amount' => isset($line['amount']) && is_numeric($line['amount']) ? (float) $line['amount'] : 0.0,
+                ];
+                continue;
+            }
+
+            $amount = null;
+            if (isset($line['amount']) && is_numeric($line['amount'])) {
+                $amount = (float) $line['amount'];
+            } elseif (isset($line['line_total']) && is_numeric($line['line_total'])) {
+                $amount = (float) $line['line_total'];
+            }
+
+            if ($amount === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'label' => $label,
+                'display' => wp_strip_all_tags((string) wc_price($amount), true),
+                'amount' => $amount,
+            ];
+        }
+
+        return $rows;
     }
 
     private static function extract_include_labels_from_snapshot_json(string $json): array
@@ -520,7 +601,6 @@ final class WooCommerceIntegration
             return;
         }
 
-        global $wp_query;
         $order_id = get_query_var('order-received');
         if (!$order_id || !is_numeric($order_id)) {
             return;
@@ -542,7 +622,7 @@ final class WooCommerceIntegration
         if ($booking && $booking['status'] === 'in_review') {
             $confirmation_url = home_url('/space-booking/?booking_id=' . $booking_id . '&status=in_review');
             error_log('SpaceBooking WC late_redirect: Redirecting order #' . $order_id . ' → ' . $confirmation_url);
-            wp_redirect($confirmation_url);
+            wp_safe_redirect($confirmation_url);
             exit;
         }
     }
@@ -693,19 +773,26 @@ final class WooCommerceIntegration
      */
     public static function handle_thankyou_redirect($order_id)
     {
-        $order = wc_get_order($order_id);
-        if (!$order)
+        $order_id = absint($order_id);
+        if ($order_id <= 0) {
             return;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
 
         $booking_id = self::get_booking_id_from_order($order);
-        if (!$booking_id)
+        if (!$booking_id) {
             return;
+        }
 
         $repo = new \SpaceBooking\Services\BookingRepository();
         $booking = $repo->find((int) $booking_id);
         if ($booking && $booking['status'] === 'in_review') {
             $confirmation_url = home_url('/space-booking/?booking_id=' . $booking_id . '&status=in_review');
-            wp_redirect($confirmation_url);
+            wp_safe_redirect($confirmation_url);
             exit;
         }
     }

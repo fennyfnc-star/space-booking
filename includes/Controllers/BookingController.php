@@ -219,6 +219,14 @@ final class BookingController extends WP_REST_Controller
 			return new WP_REST_Response(['message' => 'Duplicate booking detected after verification. Please retry later.'], 409);
 		}
 
+		// Guard: prevent creating a new booking when WooCommerce cart already has items.
+		if (function_exists('WC') && WC() && WC()->cart && WC()->cart->get_cart_contents_count() > 0) {
+			return new WP_REST_Response([
+				'message' => 'Your cart already has items. Please complete or clear your cart before creating a new booking.',
+				'hasCartBooking' => true,
+			], 409);
+		}
+
 		// Build data for booking creation
 		$data = [
 			'space_ids' => $space_ids,

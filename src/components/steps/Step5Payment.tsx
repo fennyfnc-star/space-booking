@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
-import { createBooking, fetchPricing } from "@/utils/api";
+import { checkCartHasBooking, createBooking, fetchPricing } from "@/utils/api";
 import type { Package, Space, SelectionItem } from "@/types";
 
 type SelectedPackageItem = Extract<SelectionItem, { type: "package" }>;
@@ -20,6 +20,7 @@ export function Step5Payment() {
     checkCartBooking,
     selectedItems,
     packageQuestionAnswers,
+    setHasCartBooking,
   } = useBookingStore();
 
   const [loading, setLoading] = useState(false);
@@ -167,6 +168,18 @@ export function Step5Payment() {
   })();
 
   const handlePayment = async () => {
+    try {
+      const cartState = await checkCartHasBooking();
+      if (cartState.hasCartBooking) {
+        setHasCartBooking(true);
+        setError("Your cart already has items. Remove them or continue checkout before creating a new booking.");
+        return;
+      }
+    } catch (e) {
+      setError("Unable to validate cart state. Please refresh and try again.");
+      return;
+    }
+
     if (checkoutUrl) {
       window.location.href = checkoutUrl;
       return;

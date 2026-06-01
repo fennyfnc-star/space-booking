@@ -42,6 +42,7 @@ final class WooCommerceService
 
         $product_id = $this->get_or_create_reusable_product_id();
         $line_items = is_array($snapshot['line_items'] ?? null) ? $snapshot['line_items'] : [];
+        $line_item_meta = $this->build_line_item_meta($booking_data, $booking_id, $line_items);
         if (empty($line_items)) {
             $line_items = [[
                 'type' => 'booking',
@@ -57,12 +58,14 @@ final class WooCommerceService
         $added_count = 0;
         foreach ($line_items as $index => $line) {
             $line_total = (float) ($line['line_total'] ?? 0);
-            if ($line_total <= 0) {
+            if ($line_total < 0) {
                 continue;
             }
 
             $line_label = sanitize_text_field((string) ($line['label'] ?? 'Booking Item'));
             $line_type = sanitize_text_field((string) ($line['type'] ?? 'item'));
+            $reference_id = (int) ($line['reference_id'] ?? 0);
+            $meta = $line_item_meta[$index] ?? [];
 
             $cart_item_data = [
                 'sb_booking_id' => $booking_id,
@@ -71,7 +74,7 @@ final class WooCommerceService
                 'sb_cart_price' => $line_total,
                 'sb_display_title' => $line_label,
                 'sb_line_type' => $line_type,
-                'sb_line_reference_id' => (int) ($line['reference_id'] ?? 0),
+                'sb_line_reference_id' => $reference_id,
                 'sb_space_ids' => wp_json_encode($booking_data['space_ids'] ?? []),
                 'sb_package_ids' => wp_json_encode($booking_data['package_ids'] ?? []),
                 'sb_selected_item_ids' => wp_json_encode($booking_data['selected_item_ids'] ?? []),
@@ -83,6 +86,9 @@ final class WooCommerceService
                 // Prevent WooCommerce from merging lines with same product ID.
                 'sb_line_key' => md5($booking_id . '|' . $index . '|' . $line_label . '|' . $line_total),
             ];
+            if (!empty($meta)) {
+                $cart_item_data['sb_component_meta'] = wp_json_encode($meta);
+            }
 
             $cart_key = WC()->cart->add_to_cart($product_id, 1, 0, [], $cart_item_data);
             if ($cart_key) {
@@ -114,6 +120,9 @@ final class WooCommerceService
      */
     public static function save_booking_meta_to_order_line_item($item, $cart_item_key, $values, $order): void
     {
+        if (!empty($values['sb_display_title'])) {
+            $item->set_name(sanitize_text_field((string) $values['sb_display_title']));
+        }
         if (isset($values['sb_booking_id'])) {
             $item->add_meta_data('sb_booking_id', (int) $values['sb_booking_id']);
         }
@@ -128,6 +137,12 @@ final class WooCommerceService
         }
         if (isset($values['sb_breakdown'])) {
             $item->add_meta_data('sb_breakdown', (string) $values['sb_breakdown']);
+        }
+        if (!empty($values['sb_component_meta']) && is_string($values['sb_component_meta'])) {
+            $component_meta = json_decode((string) $values['sb_component_meta'], true);
+            if (is_array($component_meta)) {
+                self::persist_component_meta_to_order_item($item, $component_meta);
+            }
         }
     }
 
@@ -169,36 +184,11 @@ final class WooCommerceService
     {
         $items = is_array($booking_data['items'] ?? null) ? $booking_data['items'] : [];
         $extras_breakdown = is_array($booking_data['extras_breakdown'] ?? null) ? $booking_data['extras_breakdown'] : [];
-        $line_items = [];
-
-        foreach ($items as $item) {
-            $amount = (float) ($item['subtotal'] ?? 0.0);
-            if ($amount <= 0) {
-                continue;
-            }
-            $line_items[] = [
-                'type' => sanitize_text_field((string) ($item['type'] ?? 'item')),
-                'reference_id' => (int) ($item['id'] ?? 0),
-                'label' => sanitize_text_field((string) ($item['title'] ?? 'Item')),
-                'quantity' => 1,
-                'unit_price' => $amount,
-                'line_total' => $amount,
-            ];
-        }
-
-        foreach ($extras_breakdown as $extra) {
-            $amount = (float) ($extra['amount'] ?? 0.0);
-            if ($amount <= 0) {
-                continue;
-            }
-            $line_items[] = [
-                'type' => 'extra',
-                'reference_id' => 0,
-                'label' => sanitize_text_field((string) ($extra['label'] ?? 'Extra')),
-                'quantity' => 1,
-                'unit_price' => $amount,
-                'line_total' => $amount,
-            ];
+        $extras_details = is_array($booking_data['extras_details'] ?? null) ? $booking_data['extras_details'] : [];
+        $breakdown = is_array($booking_data['breakdown'] ?? null) ? $booking_data['breakdown'] : [];
+        $line_items = $this->build_canonical_line_items_from_breakdown($breakdown, $items, $extras_details);
+        if (empty($line_items)) {
+            $line_items = $this->build_legacy_line_items_fallback($items, $extras_breakdown, $extras_details, $breakdown);
         }
 
         return [
@@ -216,6 +206,346 @@ final class WooCommerceService
             'line_items' => $line_items,
             'captured_at_gmt' => gmdate('c'),
         ];
+    }
+
+    /**
+     * Canonical path: one WooCommerce line item per breakdown row, including 0.00 rows.
+     */
+    private function build_canonical_line_items_from_breakdown(array $breakdown, array $items, array $extras_details): array
+    {
+        $lines = [];
+        $extras_map = $this->build_extras_label_map($extras_details);
+
+        foreach ($breakdown as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $label = sanitize_text_field((string) ($row['label'] ?? ''));
+            $amount = (float) ($row['amount'] ?? 0.0);
+            if ($label === '' || $amount < 0) {
+                continue;
+            }
+
+            $identity = $this->resolve_line_identity($label, $items, $extras_map);
+            $quantity = max(1, (int) ($identity['quantity'] ?? 1));
+            $line_total = (float) $amount;
+            $unit_price = $quantity > 0 ? ($line_total / $quantity) : $line_total;
+
+            $lines[] = [
+                'type' => sanitize_text_field((string) ($identity['type'] ?? 'item')),
+                'reference_id' => (int) ($identity['reference_id'] ?? 0),
+                'label' => $label,
+                'quantity' => $quantity,
+                'unit_price' => $unit_price,
+                'line_total' => $line_total,
+                'breakdown_index' => (int) $index,
+            ];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Compatibility fallback if canonical breakdown is unavailable.
+     */
+    private function build_legacy_line_items_fallback(array $items, array $extras_breakdown, array $extras_details, array $breakdown): array
+    {
+        $line_items = [];
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $amount = (float) ($item['subtotal'] ?? 0.0);
+            if ($amount < 0) {
+                continue;
+            }
+            $line_items[] = [
+                'type' => sanitize_text_field((string) ($item['type'] ?? 'item')),
+                'reference_id' => (int) ($item['id'] ?? 0),
+                'label' => sanitize_text_field((string) ($item['title'] ?? 'Item')),
+                'quantity' => 1,
+                'unit_price' => $amount,
+                'line_total' => $amount,
+            ];
+        }
+
+        $extras_by_label = $this->build_extras_label_map($extras_details);
+        foreach ($extras_breakdown as $extra) {
+            if (!is_array($extra)) {
+                continue;
+            }
+            $amount = (float) ($extra['amount'] ?? 0.0);
+            if ($amount < 0) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($extra['label'] ?? 'Extra'));
+            if ($label === '') {
+                continue;
+            }
+            $extra_ref = $extras_by_label[$label] ?? ['extra_id' => 0, 'paid_qty' => 1];
+            $line_items[] = [
+                'type' => 'extra',
+                'reference_id' => (int) ($extra_ref['extra_id'] ?? 0),
+                'label' => $label,
+                'quantity' => max(1, (int) ($extra_ref['paid_qty'] ?? 1)),
+                'unit_price' => $amount,
+                'line_total' => $amount,
+            ];
+        }
+
+        $existing_labels = array_map(static function (array $line): string {
+            return sanitize_text_field((string) ($line['label'] ?? ''));
+        }, $line_items);
+        $existing_labels = array_values(array_filter(array_unique($existing_labels)));
+
+        foreach ($breakdown as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($row['label'] ?? ''));
+            $amount = (float) ($row['amount'] ?? 0.0);
+            if ($label === '' || $amount < 0) {
+                continue;
+            }
+            if (stripos($label, 'package inclusion') === false) {
+                continue;
+            }
+            if (in_array($label, $existing_labels, true)) {
+                continue;
+            }
+            $line_items[] = [
+                'type' => 'inclusion',
+                'reference_id' => 0,
+                'label' => $label,
+                'quantity' => 1,
+                'unit_price' => 0.0,
+                'line_total' => 0.0,
+            ];
+            $existing_labels[] = $label;
+        }
+
+        return $line_items;
+    }
+
+    private function build_extras_label_map(array $extras_details): array
+    {
+        $extras_by_label = [];
+        foreach ($extras_details as $detail) {
+            if (!is_array($detail)) {
+                continue;
+            }
+            $label = sanitize_text_field((string) ($detail['title'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $extras_by_label[$label] = [
+                'extra_id' => (int) ($detail['extra_id'] ?? 0),
+                'paid_qty' => max(0, (int) ($detail['paid_qty'] ?? 1)),
+            ];
+        }
+        return $extras_by_label;
+    }
+
+    private function resolve_line_identity(string $label, array $items, array $extras_by_label): array
+    {
+        $normalized_label = sanitize_text_field(trim(preg_replace('/\s+/', ' ', $label) ?? ''));
+        $base_label = preg_replace('/\s*\(.+?\)\s*$/', '', $normalized_label) ?: $normalized_label;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $item_title = sanitize_text_field((string) ($item['title'] ?? ''));
+            if ($item_title === '') {
+                continue;
+            }
+            if ($normalized_label === $item_title || $base_label === $item_title || str_starts_with($normalized_label, $item_title . ' ')) {
+                return [
+                    'type' => sanitize_text_field((string) ($item['type'] ?? 'item')),
+                    'reference_id' => (int) ($item['id'] ?? 0),
+                    'quantity' => 1,
+                ];
+            }
+        }
+
+        if (isset($extras_by_label[$base_label])) {
+            $extra_ref = $extras_by_label[$base_label];
+            return [
+                'type' => 'extra',
+                'reference_id' => (int) ($extra_ref['extra_id'] ?? 0),
+                'quantity' => max(1, (int) ($extra_ref['paid_qty'] ?? 1)),
+            ];
+        }
+        if (isset($extras_by_label[$normalized_label])) {
+            $extra_ref = $extras_by_label[$normalized_label];
+            return [
+                'type' => 'extra',
+                'reference_id' => (int) ($extra_ref['extra_id'] ?? 0),
+                'quantity' => max(1, (int) ($extra_ref['paid_qty'] ?? 1)),
+            ];
+        }
+
+        if (stripos($normalized_label, 'package inclusion') !== false) {
+            return [
+                'type' => 'inclusion',
+                'reference_id' => 0,
+                'quantity' => 1,
+            ];
+        }
+
+        return [
+            'type' => 'item',
+            'reference_id' => 0,
+            'quantity' => 1,
+        ];
+    }
+
+    /**
+     * Build per-line component metadata for downstream WooCommerce order item meta.
+     */
+    private function build_line_item_meta(array $booking_data, int $booking_id, array $line_items): array
+    {
+        $duration_hours = (float) ($booking_data['duration_hours'] ?? 0.0);
+        $extras_input = is_array($booking_data['extras'] ?? null) ? $booking_data['extras'] : [];
+        $extras_by_id = [];
+        foreach ($extras_input as $extra) {
+            if (!is_array($extra)) {
+                continue;
+            }
+            $extra_id = (int) ($extra['extra_id'] ?? 0);
+            if ($extra_id <= 0) {
+                continue;
+            }
+            $extras_by_id[$extra_id] = max(1, (int) ($extra['quantity'] ?? 1));
+        }
+
+        $package_answers = $this->get_package_answers_for_booking($booking_id);
+        $meta_rows = [];
+
+        foreach ($line_items as $index => $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $type = sanitize_text_field((string) ($line['type'] ?? 'item'));
+            $reference_id = (int) ($line['reference_id'] ?? 0);
+            $quantity = max(1, (int) ($line['quantity'] ?? 1));
+            $label = sanitize_text_field((string) ($line['label'] ?? 'Booking Item'));
+            $meta = [
+                'component_label' => $label,
+                'component_type' => $type,
+                'reference_id' => $reference_id,
+                'quantity' => $quantity,
+            ];
+
+            if ($type === 'sb_space') {
+                $meta['hours'] = $duration_hours > 0 ? round($duration_hours, 2) : 0.0;
+            } elseif ($type === 'sb_package') {
+                $meta['package_questions'] = $package_answers[$reference_id] ?? [];
+            } elseif ($type === 'extra') {
+                $extra_qty = $reference_id > 0 && isset($extras_by_id[$reference_id]) ? (int) $extras_by_id[$reference_id] : $quantity;
+                $meta['quantity'] = max(1, $extra_qty);
+                $meta['details'] = $label;
+            }
+
+            $meta_rows[$index] = $meta;
+        }
+
+        return $meta_rows;
+    }
+
+    /**
+     * Read and sanitize package question answers stored on booking meta.
+     */
+    private function get_package_answers_for_booking(int $booking_id): array
+    {
+        if ($booking_id <= 0) {
+            return [];
+        }
+
+        $repo = new BookingRepository();
+        $raw = $repo->get_meta($booking_id, '_sb_package_question_answers');
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $answers = [];
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $package_id = (int) ($row['package_id'] ?? 0);
+            if ($package_id <= 0) {
+                continue;
+            }
+            $question = sanitize_text_field((string) ($row['field_label'] ?? ''));
+            $raw_answer = $row['value'] ?? '';
+            if (is_array($raw_answer)) {
+                $raw_answer = implode(', ', array_map(static fn($v): string => sanitize_text_field((string) $v), $raw_answer));
+            }
+            $answer = sanitize_text_field((string) $raw_answer);
+            if ($question === '' || $answer === '') {
+                continue;
+            }
+            if (!isset($answers[$package_id]) || !is_array($answers[$package_id])) {
+                $answers[$package_id] = [];
+            }
+            $answers[$package_id][] = [
+                'question' => $question,
+                'answer' => $answer,
+            ];
+        }
+
+        return $answers;
+    }
+
+    /**
+     * Persist human-readable component metadata on WC order line item.
+     */
+    private static function persist_component_meta_to_order_item($item, array $component_meta): void
+    {
+        $type = sanitize_text_field((string) ($component_meta['component_type'] ?? 'item'));
+        $qty = max(1, (int) ($component_meta['quantity'] ?? 1));
+
+        $item->add_meta_data('sb_component_type', $type);
+        $item->add_meta_data('sb_component_qty', $qty);
+
+        if ($type === 'sb_space') {
+            $hours = isset($component_meta['hours']) && is_numeric($component_meta['hours']) ? (float) $component_meta['hours'] : 0.0;
+            if ($hours > 0) {
+                $item->add_meta_data('Hours', (string) round($hours, 2));
+            }
+        }
+
+        if ($type === 'sb_package') {
+            $questions = is_array($component_meta['package_questions'] ?? null) ? $component_meta['package_questions'] : [];
+            foreach ($questions as $qa) {
+                if (!is_array($qa)) {
+                    continue;
+                }
+                $question = sanitize_text_field((string) ($qa['question'] ?? ''));
+                $answer = sanitize_text_field((string) ($qa['answer'] ?? ''));
+                if ($question === '' || $answer === '') {
+                    continue;
+                }
+                $item->add_meta_data('Package: ' . $question, $answer);
+            }
+        }
+
+        if ($type === 'extra') {
+            $details = sanitize_text_field((string) ($component_meta['details'] ?? ''));
+            if ($details !== '') {
+                $item->add_meta_data('Extra Details', $details);
+            }
+        }
     }
 
     /**
