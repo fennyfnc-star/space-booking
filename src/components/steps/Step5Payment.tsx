@@ -19,14 +19,12 @@ export function Step5Payment() {
     hasCartBooking,
     checkCartBooking,
     selectedItems,
-    setCustomerField,
     packageQuestionAnswers,
   } = useBookingStore();
 
   const [loading, setLoading] = useState(false);
   const [checkingCart, setCheckingCart] = useState(true);
   const [error, setError] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formStartedAt] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [recaptchaWidgetId, setRecaptchaWidgetId] = useState<number | null>(null);
 
@@ -187,18 +185,6 @@ export function Step5Payment() {
     const packageId = packageItem?.id;
     const selectedItemIds = selectedItems.map((item) => item.id);
 
-    const validationErrors: Record<string, string> = {};
-    const customerName = String(customerInfo.name || "").trim();
-    const customerEmail = String(customerInfo.email || "").trim();
-    if (!customerName) validationErrors.customer_name = "Full name is required.";
-    if (!customerEmail) validationErrors.customer_email = "Email is required.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) validationErrors.customer_email = "Enter a valid email address.";
-    setFieldErrors(validationErrors);
-    if (Object.keys(validationErrors).length > 0) {
-      setError("Please complete all required fields before continuing.");
-      return;
-    }
-
     if (!spaceId && !packageId) {
       setError("No space or package selected.");
       return;
@@ -216,8 +202,8 @@ export function Step5Payment() {
         date: selectedDate,
         start_time: selectedStartTime,
         end_time: selectedEndTime,
-        customer_name: customerName,
-        customer_email: customerEmail,
+        customer_name: String(customerInfo.name || "").trim(),
+        customer_email: String(customerInfo.email || "").trim(),
         customer_phone: String(customerInfo.phone || ""),
         notes: String(customerInfo.notes || ""),
         website_url: "",
@@ -313,32 +299,6 @@ export function Step5Payment() {
       <div className="sb-checkout-summary">
         <h3>Final Review</h3>
         <div className="sb-summary-grid">
-          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
-            <label style={{ display: "block", width: "100%" }}>
-              Full Name <span style={{ color: "#d63638" }}>*</span>
-              <input className="sb-input" type="text" value={String(customerInfo.name || "")} onChange={(e) => setCustomerField("name", e.target.value)} style={{ width: "100%", marginTop: 6 }} />
-              {fieldErrors.customer_name && <span className="sb-error">{fieldErrors.customer_name}</span>}
-            </label>
-          </div>
-          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
-            <label style={{ display: "block", width: "100%" }}>
-              Email Address <span style={{ color: "#d63638" }}>*</span>
-              <input className="sb-input" type="email" value={String(customerInfo.email || "")} onChange={(e) => setCustomerField("email", e.target.value)} style={{ width: "100%", marginTop: 6 }} />
-              {fieldErrors.customer_email && <span className="sb-error">{fieldErrors.customer_email}</span>}
-            </label>
-          </div>
-          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
-            <label style={{ display: "block", width: "100%" }}>
-              Phone
-              <input className="sb-input" type="text" value={String(customerInfo.phone || "")} onChange={(e) => setCustomerField("phone", e.target.value)} style={{ width: "100%", marginTop: 6 }} />
-            </label>
-          </div>
-          <div className="sb-summary-row" style={{ gridColumn: "1 / -1" }}>
-            <label style={{ display: "block", width: "100%" }}>
-              Notes
-              <textarea className="sb-input" value={String(customerInfo.notes || "")} onChange={(e) => setCustomerField("notes", e.target.value)} style={{ width: "100%", marginTop: 6, minHeight: 90 }} />
-            </label>
-          </div>
           <div className="sb-summary-row"><span>Space</span><span>{getSpaceSummaryLabel()}</span></div>
           <div className="sb-summary-row"><span>Date</span><span>{selectedDate}</span></div>
           <div className="sb-summary-row"><span>Time</span><span>{formatTimeTo12Hour(selectedStartTime)} – {formatTimeTo12Hour(selectedEndTime)}</span></div>

@@ -156,12 +156,12 @@ final class BookingController extends WP_REST_Controller
 
 		$this->spam_guard->increment_rate_counters($request_ip, $email);
 
-		if ($name === '' || !is_email($email)) {
+		if ($email !== '' && !is_email($email)) {
 			$this->spam_guard->log_suspicious_attempt('invalid_customer_fields', [
 				'email' => $email,
 				'name_empty' => $name === '',
 			]);
-			return new WP_REST_Response(['message' => 'Valid customer name and email are required.'], 422);
+			return new WP_REST_Response(['message' => 'Invalid customer email format.'], 422);
 		}
 
 		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
@@ -183,7 +183,7 @@ final class BookingController extends WP_REST_Controller
 			return new WP_REST_Response(['message' => 'Either space_ids or package_ids must be provided.'], 422);
 		}
 
-		if ($this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
+		if ($email !== '' && $this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
 			$this->spam_guard->log_suspicious_attempt('duplicate_booking_window', [
 				'email' => $email,
 				'date' => $date,
@@ -209,7 +209,7 @@ final class BookingController extends WP_REST_Controller
 			}
 		}
 
-		if ($this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
+		if ($email !== '' && $this->spam_guard->has_recent_duplicate($email, $date, $start_time, $end_time)) {
 			$this->spam_guard->log_suspicious_attempt('duplicate_after_captcha', [
 				'email' => $email,
 				'date' => $date,
