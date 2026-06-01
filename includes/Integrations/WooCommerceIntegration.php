@@ -29,6 +29,7 @@ final class WooCommerceIntegration
         add_action('woocommerce_before_calculate_totals', [self::class, 'apply_snapshot_cart_prices'], 50, 1);
         add_filter('woocommerce_cart_item_name', [self::class, 'render_cart_item_name'], 999, 3);
         add_filter('woocommerce_get_item_data', [self::class, 'render_cart_item_data'], 10, 2);
+        add_filter('woocommerce_order_item_get_formatted_meta_data', [self::class, 'filter_internal_order_item_meta'], 10, 2);
         add_action('woocommerce_review_order_before_cart_contents', [self::class, 'render_checkout_order_summary_breakdown'], 20);
         add_action('woocommerce_thankyou', [self::class, 'handle_thankyou_redirect'], 20, 1);
         // Resolve confirmation redirect before output starts on order-received endpoint.
@@ -140,6 +141,48 @@ final class WooCommerceIntegration
         }
 
         return $item_data;
+    }
+
+    /**
+     * Hide internal Space Booking order-item meta from customer-facing rendering (emails/order pages).
+     */
+    public static function filter_internal_order_item_meta(array $formatted_meta, $item): array
+    {
+        $is_email_context = did_action('woocommerce_email_before_order_table') > 0
+            || did_action('woocommerce_email_order_details') > 0;
+        $is_customer_context = !is_admin() || $is_email_context;
+
+        if (!$is_customer_context) {
+            return $formatted_meta;
+        }
+
+        foreach ($formatted_meta as $meta_id => $meta) {
+            $key = isset($meta->key) ? (string) $meta->key : '';
+            if (self::is_internal_spacebooking_meta_key($key)) {
+                unset($formatted_meta[$meta_id]);
+            }
+        }
+
+        return $formatted_meta;
+    }
+
+    private static function is_internal_spacebooking_meta_key(string $key): bool
+    {
+        if ($key === '') {
+            return false;
+        }
+
+        if (strpos($key, 'sb_') === 0) {
+            return true;
+        }
+
+        return in_array($key, [
+            'sb_price_snapshot_v1',
+            'sb_breakdown',
+            'sb_display_title',
+            'sb_component_type',
+            'sb_component_qty',
+        ], true);
     }
 
     /**
