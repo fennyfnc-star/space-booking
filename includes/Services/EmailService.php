@@ -11,13 +11,13 @@ final class EmailService
 {
 	private string $from_name;
 	private string $from_email;
-	private string $admin_email;
+	private array $admin_emails;
 
 	public function __construct()
 	{
 		$this->from_name = (string) get_option('sb_email_from_name', get_option('blogname'));
-		$this->from_email = (string) get_option('sb_admin_email', get_option('admin_email'));
-		$this->admin_email = (string) get_option('sb_admin_email', get_option('admin_email'));
+		$this->admin_emails = $this->resolve_admin_emails();
+		$this->from_email = $this->resolve_from_email();
 	}
 
 	// ── Booking Confirmation ─────────────────────────────────────────────────
@@ -74,7 +74,7 @@ final class EmailService
 			'package_answer_rows' => $package_answer_rows,
 		]);
 
-		$this->send($this->admin_email, $subject, $body);
+		$this->send($this->admin_emails, $subject, $body);
 	}
 
 	// ── Magic Link ───────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ final class EmailService
 
 	// ── Core Send ────────────────────────────────────────────────────────────
 
-	private function send(string $to, string $subject, string $body): void
+	private function send($to, string $subject, string $body): void
 	{
 		add_filter('wp_mail_from', fn() => $this->from_email);
 		add_filter('wp_mail_from_name', fn() => $this->from_name);
@@ -113,6 +113,42 @@ final class EmailService
 		remove_all_filters('wp_mail_from');
 		remove_all_filters('wp_mail_from_name');
 		remove_all_filters('wp_mail_content_type');
+	}
+
+	/**
+	 * Resolve admin recipients from the settings option.
+	 *
+	 * @return array<int, string>
+	 */
+	private function resolve_admin_emails(): array
+	{
+		$raw_value = (string) get_option('sb_admin_email', get_option('admin_email'));
+		$emails = preg_split('/\s*,\s*/', $raw_value) ?: [];
+		$recipients = [];
+
+		foreach ($emails as $email) {
+			$email = sanitize_email(trim($email));
+			if ($email !== '' && is_email($email) && !in_array($email, $recipients, true)) {
+				$recipients[] = $email;
+			}
+		}
+
+		if (!empty($recipients)) {
+			return $recipients;
+		}
+
+		$fallback = sanitize_email((string) get_option('admin_email'));
+		return is_email($fallback) ? [$fallback] : [];
+	}
+
+	private function resolve_from_email(): string
+	{
+		if (!empty($this->admin_emails)) {
+			return $this->admin_emails[0];
+		}
+
+		$fallback = sanitize_email((string) get_option('admin_email'));
+		return is_email($fallback) ? $fallback : '';
 	}
 
 	// ── Template Renderer ────────────────────────────────────────────────────
@@ -207,6 +243,9 @@ final class EmailService
 
 		add_filter('wp_mail_content_type', fn() => 'text/html');
 		wp_mail($booking['customer_email'], $subject, $body);
+		if (!empty($this->admin_emails)) {
+			wp_mail($this->admin_emails, $subject, $body);
+		}
 		remove_all_filters('wp_mail_content_type');
 
 		/* translators: %s customer email */

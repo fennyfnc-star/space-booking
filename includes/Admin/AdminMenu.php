@@ -115,7 +115,7 @@ final class AdminMenu
 			'sb_buffer_pre_minutes' => 'absint',
 			'sb_buffer_post_minutes' => 'absint',
 			'sb_currency' => 'sanitize_text_field',
-			'sb_admin_email' => 'sanitize_email',
+			'sb_admin_email' => [$this, 'sanitize_admin_email_list'],
 			'sb_email_from_name' => 'sanitize_text_field',
 			'sb_magic_link_ttl_minutes' => 'absint',
 			'sb_booking_policy' => 'wp_kses_post',
@@ -268,7 +268,12 @@ final class AdminMenu
             <?php \SpaceBooking\Services\CurrencyService::render_select('sb_currency'); ?><p class="description">
                 <?php esc_html_e('Select your currency. Prices will be displayed with the appropriate symbol.', 'space-booking'); ?>
             </p>
-            <?php $this->settings_row('sb_admin_email', __('Admin Notification Email', 'space-booking'), 'email'); ?>
+            <?php $this->settings_row(
+				'sb_admin_email',
+				__('Admin Notification Email', 'space-booking'),
+				'text',
+				__('Separate multiple addresses with commas. Invalid emails are ignored.', 'space-booking')
+			); ?>
             <?php $this->settings_row('sb_email_from_name', __('Email From Name', 'space-booking'), 'text'); ?>
             <?php $this->settings_row('sb_magic_link_ttl_minutes', __('Magic Link TTL (minutes)', 'space-booking'), 'number'); ?>
             <?php $this->policy_editor_row('sb_booking_policy', __('Booking Policy / Terms Agreement', 'space-booking')); ?>
@@ -311,11 +316,35 @@ final class AdminMenu
 <?php
 	}
 
-	private function settings_row(string $key, string $label, string $type): void
+	private function settings_row(string $key, string $label, string $type, string $description = ''): void
 	{
 		$value = esc_attr((string) get_option($key));
 		echo "<tr><th><label for=\"{$key}\">{$label}</label></th><td>"
-			. "<input id=\"{$key}\" name=\"{$key}\" type=\"{$type}\" value=\"{$value}\" class=\"regular-text\"></td></tr>";
+			. "<input id=\"{$key}\" name=\"{$key}\" type=\"{$type}\" value=\"{$value}\" class=\"regular-text\">";
+		if ($description !== '') {
+			echo '<p class="description">' . esc_html($description) . '</p>';
+		}
+		echo '</td></tr>';
+	}
+
+	public function sanitize_admin_email_list($value): string
+	{
+		$emails = preg_split('/\s*,\s*/', (string) $value) ?: [];
+		$sanitized = [];
+
+		foreach ($emails as $email) {
+			$email = sanitize_email(trim($email));
+			if ($email !== '' && is_email($email) && !in_array($email, $sanitized, true)) {
+				$sanitized[] = $email;
+			}
+		}
+
+		if (empty($sanitized)) {
+			$fallback = sanitize_email((string) get_option('admin_email'));
+			return is_email($fallback) ? $fallback : '';
+		}
+
+		return implode(', ', $sanitized);
 	}
 
 	private function policy_editor_row(string $key, string $label): void

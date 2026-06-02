@@ -124,6 +124,19 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
     }
 
+    public function test_admin_email_setting_accepts_comma_separated_recipients(): void
+    {
+        $adminMenu = (string) file_get_contents($this->pluginRoot . '/includes/Admin/AdminMenu.php');
+        $emailService = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailService.php');
+
+        $this->assertStringContainsString("'sb_admin_email' => [\$this, 'sanitize_admin_email_list']", $adminMenu);
+        $this->assertStringContainsString('Separate multiple addresses with commas.', $adminMenu);
+        $this->assertStringContainsString("preg_split('/\\s*,\\s*/'", $adminMenu);
+        $this->assertStringContainsString('resolve_admin_emails', $emailService);
+        $this->assertStringContainsString('wp_mail($this->admin_emails', $emailService);
+        $this->assertStringContainsString("preg_split('/\\s*,\\s*/'", $emailService);
+    }
+
     public function test_package_questions_qa_checklist_contracts_across_booking_views(): void
     {
         $step5Payment = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
