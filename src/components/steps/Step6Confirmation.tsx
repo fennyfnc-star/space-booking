@@ -361,7 +361,35 @@ export function Step6Confirmation() {
       .filter((row): row is { label: string; value: string } => !!row);
   };
 
+  const getNoteRows = (): Array<{ label: string; value: string }> => {
+    const bookingNote = (
+      bookingData.notes?.trim() ||
+      bookingData._meta_data?._sb_booking_notes?.trim() ||
+      ""
+    ).trim();
+    const checkoutNote = bookingData._meta_data?._sb_wc_customer_note?.trim() || "";
+
+    const rows: Array<{ label: string; value: string }> = [];
+
+    if (bookingNote) {
+      rows.push({
+        label: "Notes",
+        value: bookingNote,
+      });
+    }
+
+    if (checkoutNote && checkoutNote !== bookingNote) {
+      rows.push({
+        label: "WooCommerce checkout note",
+        value: checkoutNote,
+      });
+    }
+
+    return rows;
+  };
+
   const packageQuestionRows = getPackageQuestionRows();
+  const noteRows = getNoteRows();
 
   return (
     <div className="sb-step sb-step-6">
@@ -463,6 +491,21 @@ export function Step6Confirmation() {
               <tr>
                 <th>Phone</th>
                 <td>{bookingData.customer_phone}</td>
+              </tr>
+            )}
+            {noteRows.length > 0 && (
+              <tr>
+                <th>Customer Notes</th>
+                <td>
+                  <ul className="sb-confirm-extras">
+                    {noteRows.map((row, index) => (
+                      <li key={`${row.label}-${index}`}>
+                        <strong>{row.label}:</strong>{" "}
+                        <span style={{ whiteSpace: "pre-line" }}>{row.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </td>
               </tr>
             )}
             {packageQuestionRows.length > 0 && (

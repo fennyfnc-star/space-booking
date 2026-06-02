@@ -140,11 +140,27 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('wp_mail($admin_emails', $ajaxHandlers);
     }
 
+    public function test_recaptcha_detector_supports_common_woocommerce_option_shapes(): void
+    {
+        $recaptchaService = (string) file_get_contents($this->pluginRoot . '/includes/Services/RecaptchaService.php');
+
+        $this->assertStringContainsString('woocommerce_google_recaptcha_site_key', $recaptchaService);
+        $this->assertStringContainsString('woocommerce_google_recaptcha_settings', $recaptchaService);
+        $this->assertStringContainsString('woocommerce_ppcp-recaptcha_settings', $recaptchaService);
+        $this->assertStringContainsString('siteKey', $recaptchaService);
+        $this->assertStringContainsString('secretKey', $recaptchaService);
+        $this->assertStringContainsString('site_key_v3', $recaptchaService);
+        $this->assertStringContainsString('secret_key_v3', $recaptchaService);
+        $this->assertStringContainsString('captcha_site_key', $recaptchaService);
+        $this->assertStringContainsString('captcha_secret_key', $recaptchaService);
+    }
+
     public function test_package_questions_qa_checklist_contracts_across_booking_views(): void
     {
         $step5Payment = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
         $step6Confirmation = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step6Confirmation.tsx');
         $adminEdit = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
+        $wooIntegration = (string) file_get_contents($this->pluginRoot . '/includes/Integrations/WooCommerceIntegration.php');
         $emailHelper = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailTemplateHelper.php');
         $adminEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/notification-admin.php');
         $customerEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/confirmation-customer.php');
@@ -162,6 +178,8 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         // 3) Package with answers should render in checkout/confirmation/admin/emails.
         $this->assertStringContainsString('Package Answers', $step5Payment);
         $this->assertStringContainsString('Package Answers', $step6Confirmation);
+        $this->assertStringContainsString('WooCommerce checkout note', $step6Confirmation);
+        $this->assertStringContainsString('_sb_wc_customer_note', $wooIntegration);
         $this->assertStringContainsString('Package Answers', $adminEdit);
         $this->assertStringContainsString('render_package_qa_html', $emailHelper);
         $this->assertStringContainsString('package_answer_rows', $adminEmailTemplate);

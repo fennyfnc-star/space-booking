@@ -892,9 +892,11 @@ final class WooCommerceIntegration
             return;
         }
 
+        $checkout_notes = trim((string) $order->get_customer_note());
+
         // Sync billing details from WooCommerce order if booking lacks customer info
         self::sync_booking_contact_to_order($order, (int) $booking_id, $repo);
-        self::sync_billing_details_to_booking($order, $booking_id, $repo);
+        self::sync_billing_details_to_booking($order, $booking_id, $repo, $checkout_notes);
 
         if ($booking['status'] === 'pending') {
             $updated = $repo->update_status($booking_id, 'in_review');
@@ -912,7 +914,7 @@ final class WooCommerceIntegration
      * Sync billing details from WooCommerce order to booking.
      * This allows skipping Step4Details - customer info comes from WC checkout.
      */
-    private static function sync_billing_details_to_booking($order, int $booking_id, $repo): void
+    private static function sync_billing_details_to_booking($order, int $booking_id, $repo, string $checkout_notes = ''): void
     {
         // Get current booking data
         $booking = $repo->find($booking_id);
@@ -925,7 +927,12 @@ final class WooCommerceIntegration
         $customer_name = '';
         $customer_email = '';
         $customer_phone = '';
-        $booking_notes = '';
+        $booking_notes = trim((string) ($booking['notes'] ?? ''));
+        $checkout_notes = trim($checkout_notes !== '' ? $checkout_notes : (string) $order->get_customer_note());
+
+        // Preserve the original booking note and the WooCommerce checkout note separately.
+        $repo->save_meta($booking_id, '_sb_booking_notes', $booking_notes);
+        $repo->save_meta($booking_id, '_sb_wc_customer_note', $checkout_notes);
 
         if (empty($booking['customer_name']) || $booking['customer_name'] === 'Guest' || $booking['customer_name'] === '') {
             // Get billing name from WC order
@@ -969,13 +976,11 @@ final class WooCommerceIntegration
             $customer_phone = $booking['customer_phone'];
         }
 
-        if (empty($booking['notes']) || $booking['notes'] === '') {
-            $booking_notes = (string) $order->get_customer_note();
+        if ($booking_notes === '' && $checkout_notes !== '') {
+            $booking_notes = $checkout_notes;
             if (!empty($booking_notes)) {
                 $needs_update = true;
             }
-        } else {
-            $booking_notes = $booking['notes'];
         }
 
         if ($needs_update) {
