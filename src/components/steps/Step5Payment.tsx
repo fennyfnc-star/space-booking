@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { checkCartHasBooking, createBooking, fetchPricing } from "@/utils/api";
+import { formatBookingDate } from "@/utils/date";
 import type { Package, Space, SelectionItem } from "@/types";
 
 type SelectedPackageItem = Extract<SelectionItem, { type: "package" }>;
@@ -351,6 +352,8 @@ export function Step5Payment() {
     return "No space selected";
   };
 
+  const formattedSelectedDate = formatBookingDate(selectedDate);
+
   return (
     <div className="sb-step sb-step-5">
       <h2 className="sb-step__title">Complete Booking</h2>
@@ -358,7 +361,7 @@ export function Step5Payment() {
         <h3>Final Review</h3>
         <div className="sb-summary-grid">
           <div className="sb-summary-row"><span>Space</span><span>{getSpaceSummaryLabel()}</span></div>
-          <div className="sb-summary-row"><span>Date</span><span>{selectedDate}</span></div>
+          <div className="sb-summary-row"><span>Date</span><span>{formattedSelectedDate || selectedDate}</span></div>
           <div className="sb-summary-row"><span>Time</span><span>{formatTimeTo12Hour(selectedStartTime)} – {formatTimeTo12Hour(selectedEndTime)}</span></div>
         </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
+import { formatBookingDate } from "@/utils/date";
 
 interface SelectedItem {
   id: number;
@@ -390,6 +391,7 @@ export function Step6Confirmation() {
 
   const packageQuestionRows = getPackageQuestionRows();
   const noteRows = getNoteRows();
+  const formattedBookingDate = formatBookingDate(bookingData.booking_date);
 
   return (
     <div className="sb-step sb-step-6">
@@ -466,7 +468,7 @@ export function Step6Confirmation() {
 
             <tr>
               <th>Date</th>
-              <td>{bookingData.booking_date}</td>
+              <td>{formattedBookingDate || bookingData.booking_date}</td>
             </tr>
             <tr>
               <th>Time</th>

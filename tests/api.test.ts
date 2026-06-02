@@ -14,6 +14,7 @@ import {
   fetchConflicts,
   fetchResourceMap,
 } from "../src/utils/api";
+import { formatBookingDate } from "../src/utils/date";
 
 // Mock the API response helper
 const mockSlots = [
@@ -803,5 +804,19 @@ describe("API Error Handling", () => {
     });
 
     await expect(fetchSpaces()).rejects.toThrow("Internal Server Error");
+  });
+});
+
+describe("formatBookingDate", () => {
+  it("formats ISO booking dates in long form", () => {
+    expect(formatBookingDate("2026-06-02")).toBe("June 2, 2026");
+  });
+
+  it("returns an empty string for empty input", () => {
+    expect(formatBookingDate("")).toBe("");
+  });
+
+  it("returns the original value for non-ISO input", () => {
+    expect(formatBookingDate("June 2, 2026")).toBe("June 2, 2026");
   });
 });

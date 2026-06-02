@@ -21,6 +21,7 @@ if ($booking_id) {
     $repo = new \SpaceBooking\Services\BookingRepository();
     $booking = $repo->find($booking_id);
     if ($booking) {
+        $date_display = \SpaceBooking\Services\DateDisplayHelper::format_booking_date((string) ($booking['booking_date'] ?? ''));
         wp_localize_script('space-booking-confirmation', 'sbConfirmationData', [
             'bookingId' => $booking_id,
             'status' => $booking['status'],
@@ -58,7 +59,7 @@ import(window.sbConfig.viteBase + '/src/confirmation-main.tsx?' + Date.now())
 <div class="sb-confirmation-success">
     <h2>Booking #<?= esc_html($booking_id) ?> Confirmed!</h2>
     <p>Space: <?= esc_html(get_the_title($booking['space_id'])) ?></p>
-    <p>Date: <?= esc_html($booking['booking_date']) ?> | <?= date('g:i A', strtotime($booking['start_time'])) ?> –
+    <p>Date: <?= esc_html($date_display ?? (string) $booking['booking_date']) ?> | <?= date('g:i A', strtotime($booking['start_time'])) ?> –
         <?= date('g:i A', strtotime($booking['end_time'])) ?> | <?= $booking['duration_hours'] ?> hours</p>
     <?php if (!empty($booking['extras'])): ?>
     <p>Extras: <?= implode(', ', array_column($booking['extras'], 'extra_name')) ?></p>

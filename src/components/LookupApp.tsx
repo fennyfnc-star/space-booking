@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { sendMagicLink, fetchCustomerBookings } from "@/utils/api";
+import { formatBookingDate } from "@/utils/date";
 import type { CustomerBooking } from "@/types";
 
 type ViewState = "form" | "sent" | "bookings" | "error";
@@ -151,7 +152,7 @@ export function LookupApp() {
             <div>
               <h3 className="sb-booking-card__space">{b.space_name}</h3>
               <p className="sb-booking-card__date">
-                {b.booking_date} · {b.start_time.slice(0, 5)} –{" "}
+                {formatBookingDate(b.booking_date)} · {b.start_time.slice(0, 5)} –{" "}
                 {b.end_time.slice(0, 5)}
               </p>
             </div>

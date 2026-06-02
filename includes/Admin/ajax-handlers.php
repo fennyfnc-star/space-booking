@@ -85,7 +85,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     $start_time = date('g:i A', strtotime((string) $booking['start_time']));
     $end_time = date('g:i A', strtotime((string) $booking['end_time']));
     $time_display = $start_time . ' - ' . $end_time;
-    $date_display = date_i18n(get_option('date_format'), strtotime((string) $booking['booking_date']));
+    $date_display = \SpaceBooking\Services\DateDisplayHelper::format_booking_date((string) $booking['booking_date']);
 
     // Build selected items list.
     $items_list = '';
@@ -546,9 +546,19 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
                 <h3 style='font-size: 15px; margin-bottom: 10px; color: #777;'>" . esc_html__('Extras', 'space-booking') . "</h3>
                 " . ($extras_list !== '' ? "<ul style='margin:0 0 20px;padding-left:20px;font-size:13px;'>" . $extras_list . "</ul>" : "<p style='margin:0 0 20px;font-size:13px;color:#666;'>" . esc_html__('None', 'space-booking') . "</p>") . "
 
-                <h3 style='font-size: 15px; margin-bottom: 10px; color: #777;'>" . esc_html__('Price Breakdown', 'space-booking') . "</h3>
-                <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
-                    <tbody>" . $breakdown_html . "</tbody>
+                <h3 style='font-size: 15px; margin-bottom: 10px; color: #777;'>" . esc_html__('Order Summary', 'space-booking') . "</h3>
+                <table style='width:100%;border-collapse:collapse;margin-bottom:20px;'>
+                    <thead>
+                        <tr>
+                            <th style='text-align:left; border-bottom: 2px solid #eee; padding:12px; background: #fafafa; font-size: 12px;'>" . esc_html__('Product', 'space-booking') . "</th>
+                            <th style='text-align:right; border-bottom: 2px solid #eee; padding:12px; background: #fafafa; font-size: 12px;'>" . esc_html__('Price', 'space-booking') . "</th>
+                        </tr>
+                    </thead>
+                    <tbody>" . $order_items_html . (
+                        $breakdown_html !== ''
+                            ? "<tr><td colspan='2' style='text-align:left;padding:10px 8px;background:#fafafa;border-top:1px solid #eee;border-bottom:1px solid #eee;font-weight:700;'>" . esc_html__('Detailed Price Breakdown', 'space-booking') . "</td></tr>" . $breakdown_html
+                            : ''
+                    ) . "</tbody>
                     <tfoot>
                         <tr>
                             <th style='text-align:left; padding:12px; border-top: 1px solid #eee;'>" . esc_html__('Subtotal', 'space-booking') . "</th>
@@ -559,17 +569,6 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
                             <td style='text-align:right; padding:12px; font-size: 20px; color: " . esc_attr($primary_color) . "; font-weight: bold;'>" . wp_kses_post($total_display) . "</td>
                         </tr>
                     </tfoot>
-                </table>
-
-                <h3 style='font-size: 15px; margin-bottom: 10px; color: #777;'>" . esc_html__('Order Items', 'space-booking') . "</h3>
-                <table style='width:100%;border-collapse:collapse;margin-bottom:20px;'>
-                    <thead>
-                        <tr>
-                            <th style='text-align:left; border-bottom: 2px solid #eee; padding:12px; background: #fafafa; font-size: 12px;'>" . esc_html__('Product', 'space-booking') . "</th>
-                            <th style='text-align:right; border-bottom: 2px solid #eee; padding:12px; background: #fafafa; font-size: 12px;'>" . esc_html__('Price', 'space-booking') . "</th>
-                        </tr>
-                    </thead>
-                    <tbody>" . $order_items_html . "</tbody>
                 </table>
 
                 " . $customer_notes_html . "

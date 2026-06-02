@@ -122,6 +122,8 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $ajaxHandlers = (string) file_get_contents($this->pluginRoot . '/includes/Admin/ajax-handlers.php');
         $this->assertStringContainsString('EmailTemplateHelper::PRIMARY_COLOR', $ajaxHandlers);
         $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
+        $this->assertStringContainsString('Order Summary', $ajaxHandlers);
+        $this->assertStringContainsString('Detailed Price Breakdown', $ajaxHandlers);
     }
 
     public function test_admin_email_setting_accepts_comma_separated_recipients(): void
@@ -158,6 +160,7 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
     public function test_package_questions_qa_checklist_contracts_across_booking_views(): void
     {
         $step5Payment = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
+        $step4Terms = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step4Terms.tsx');
         $step6Confirmation = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step6Confirmation.tsx');
         $adminEdit = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
         $wooIntegration = (string) file_get_contents($this->pluginRoot . '/includes/Integrations/WooCommerceIntegration.php');
@@ -174,6 +177,9 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         // 2) Package selected but no questions configured: no package Q&A section shown.
         $this->assertStringContainsString('const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];', $step5Payment);
         $this->assertStringContainsString('if (!answer) return;', $step5Payment);
+        $this->assertStringContainsString('normalizeBookingPolicyHtml', $step4Terms);
+        $this->assertStringContainsString('split(/\\r\\n|\\r|\\n/)', $step4Terms);
+        $this->assertStringContainsString('document.createElement("br")', $step4Terms);
 
         // 3) Package with answers should render in checkout/confirmation/admin/emails.
         $this->assertStringContainsString('Package Answers', $step5Payment);

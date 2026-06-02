@@ -37,10 +37,11 @@ final class EmailService
 		$package_answer_rows = EmailTemplateHelper::package_question_rows_from_meta_string(
 			(string) $repo->get_meta((int) $booking['id'], '_sb_package_question_answers')
 		);
+		$date_display = DateDisplayHelper::format_booking_date((string) ($booking['booking_date'] ?? ''));
 		$subject = sprintf(
 			__('Booking Confirmed – %s on %s', 'space-booking'),
 			get_the_title((int) $booking['space_id']),
-			$booking['booking_date']
+			$date_display
 		);
 
 		$body = $this->render_template('emails/confirmation-customer.php', [
@@ -62,10 +63,11 @@ final class EmailService
 		$package_answer_rows = EmailTemplateHelper::package_question_rows_from_meta_string(
 			(string) $repo->get_meta((int) $booking['id'], '_sb_package_question_answers')
 		);
+		$date_display = DateDisplayHelper::format_booking_date((string) ($booking['booking_date'] ?? ''));
 		$subject = sprintf(
 			__('[New Booking] %s – %s', 'space-booking'),
 			get_the_title((int) $booking['space_id']),
-			$booking['booking_date']
+			$date_display
 		);
 
 		$body = $this->render_template('emails/notification-admin.php', [
@@ -228,7 +230,7 @@ final class EmailService
 			],
 			[
 				esc_html($booking['customer_name']),
-				esc_html($booking['booking_date']),
+				esc_html(DateDisplayHelper::format_booking_date((string) $booking['booking_date'])),
 				esc_html(get_the_title((int) $booking['space_id'])),
 				esc_html(get_post_meta((int) $booking['space_id'], '_sb_access_instructions', true) ?: 'TBD'),
 				\SpaceBooking\Services\CurrencyService::format((float) $booking['total_price']),

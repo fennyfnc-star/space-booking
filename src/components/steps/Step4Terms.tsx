@@ -69,11 +69,71 @@ function sanitizeBookingPolicy(policy: string): string {
   });
 }
 
+function normalizeBookingPolicyHtml(policy: string): string {
+  const sanitized = sanitizeBookingPolicy(policy);
+  if (sanitized === "" || typeof document === "undefined") {
+    return sanitized;
+  }
+
+  const root = document.createElement("div");
+  root.innerHTML = sanitized;
+
+  const blockTags = new Set(["P", "DIV", "LI", "BLOCKQUOTE"]);
+
+  const normalizeNode = (node: ParentNode): void => {
+    const childNodes = Array.from(node.childNodes);
+
+    childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const text = child.textContent || "";
+        if (!/[\r\n]/.test(text)) {
+          return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        const lines = text.split(/\r\n|\r|\n/);
+        lines.forEach((line, index) => {
+          if (line !== "") {
+            fragment.appendChild(document.createTextNode(line));
+          }
+          if (index < lines.length - 1) {
+            fragment.appendChild(document.createElement("br"));
+          }
+        });
+
+        child.parentNode?.replaceChild(fragment, child);
+        return;
+      }
+
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      const element = child as HTMLElement;
+      normalizeNode(element);
+
+      if (!blockTags.has(element.tagName)) {
+        return;
+      }
+
+      const plainText = (element.textContent || "").replace(/\u00a0/g, " ").trim();
+      const hasOnlyBreaksOrWhitespace = plainText === "";
+      if (hasOnlyBreaksOrWhitespace) {
+        const br = document.createElement("br");
+        element.replaceWith(br);
+      }
+    });
+  };
+
+  normalizeNode(root);
+  return root.innerHTML;
+}
+
 export function Step4Terms() {
   const { nextStep, prevStep } = useBookingStore();
   const policyRef = useRef<HTMLDivElement | null>(null);
   const [bookingPolicy, setBookingPolicy] = useState(() =>
-    sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+    normalizeBookingPolicyHtml(window.sbConfig?.bookingPolicy || ""),
   );
   const [agreed, setAgreed] = useState(false);
   const [canAgree, setCanAgree] = useState(false);
@@ -82,7 +142,7 @@ export function Step4Terms() {
 
   useEffect(() => {
     setBookingPolicy(
-      sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+      normalizeBookingPolicyHtml(window.sbConfig?.bookingPolicy || ""),
     );
   }, []);
 
