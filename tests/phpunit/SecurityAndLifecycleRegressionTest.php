@@ -128,6 +128,7 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
     {
         $adminMenu = (string) file_get_contents($this->pluginRoot . '/includes/Admin/AdminMenu.php');
         $emailService = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailService.php');
+        $ajaxHandlers = (string) file_get_contents($this->pluginRoot . '/includes/Admin/ajax-handlers.php');
 
         $this->assertStringContainsString("'sb_admin_email' => [\$this, 'sanitize_admin_email_list']", $adminMenu);
         $this->assertStringContainsString('Separate multiple addresses with commas.', $adminMenu);
@@ -135,6 +136,8 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('resolve_admin_emails', $emailService);
         $this->assertStringContainsString('wp_mail($this->admin_emails', $emailService);
         $this->assertStringContainsString("preg_split('/\\s*,\\s*/'", $emailService);
+        $this->assertStringContainsString('sb_get_admin_notification_emails', $ajaxHandlers);
+        $this->assertStringContainsString('wp_mail($admin_emails', $ajaxHandlers);
     }
 
     public function test_package_questions_qa_checklist_contracts_across_booking_views(): void

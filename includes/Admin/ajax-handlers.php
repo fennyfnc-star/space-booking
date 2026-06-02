@@ -8,6 +8,26 @@
  * @param string $admin_feedback Optional admin feedback message
  * @return bool True if email sent successfully
  */
+function sb_get_admin_notification_emails(): array {
+    $raw_value = (string) get_option('sb_admin_email', get_option('admin_email'));
+    $emails = preg_split('/\s*,\s*/', $raw_value) ?: [];
+    $recipients = [];
+
+    foreach ($emails as $email) {
+        $email = sanitize_email(trim($email));
+        if ($email !== '' && is_email($email) && !in_array($email, $recipients, true)) {
+            $recipients[] = $email;
+        }
+    }
+
+    if (!empty($recipients)) {
+        return $recipients;
+    }
+
+    $fallback = sanitize_email((string) get_option('admin_email'));
+    return is_email($fallback) ? [$fallback] : [];
+}
+
 function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedback = '', ?string $status_override = null): bool {
     global $wpdb;
     
@@ -562,11 +582,16 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     </div>";
     
     $headers = ['Content-Type: text/html; charset=UTF-8'];
+    $admin_emails = sb_get_admin_notification_emails();
     
     // Allow custom hook for email sending
     do_action('sb_before_send_confirmation_email', $booking, $admin_feedback);
     
     $sent = wp_mail($to, $subject, $message, $headers);
+    if (!empty($admin_emails)) {
+        $admin_sent = wp_mail($admin_emails, $subject, $message, $headers);
+        $sent = $sent && $admin_sent;
+    }
     
     do_action('sb_after_send_confirmation_email', $booking, $admin_feedback, $sent);
     
