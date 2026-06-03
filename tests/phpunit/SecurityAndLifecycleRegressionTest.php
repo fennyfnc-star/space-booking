@@ -123,7 +123,8 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $this->assertStringContainsString('EmailTemplateHelper::PRIMARY_COLOR', $ajaxHandlers);
         $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
         $this->assertStringContainsString('Order Summary', $ajaxHandlers);
-        $this->assertStringContainsString('Detailed Price Breakdown', $ajaxHandlers);
+        $this->assertStringContainsString('img src="', $ajaxHandlers);
+        $this->assertStringNotContainsString('Detailed Price Breakdown', $ajaxHandlers);
     }
 
     public function test_admin_email_setting_accepts_comma_separated_recipients(): void
