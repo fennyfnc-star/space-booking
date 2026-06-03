@@ -270,7 +270,7 @@ final class WooCommerceIntegration
         echo $breakdown_html;
         echo '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:8px;margin-top:8px;border-top:1px solid #ddd;font-weight:700;">';
         echo '<span>' . esc_html__('Total', 'space-booking') . '</span>';
-        echo '<span>' . esc_html(wp_strip_all_tags((string) wc_price($total), true)) . '</span>';
+        echo '<span>' . esc_html(\SpaceBooking\Services\CurrencyService::format((float) $total)) . '</span>';
         echo '</div>';
         echo '</div>';
         echo '</td>';
@@ -406,7 +406,7 @@ final class WooCommerceIntegration
 
             $rows[] = [
                 'label' => $label,
-                'display' => wp_strip_all_tags((string) wc_price($amount), true),
+                'display' => \SpaceBooking\Services\CurrencyService::format($amount),
                 'amount' => $amount,
             ];
         }
@@ -514,7 +514,7 @@ final class WooCommerceIntegration
         foreach ($enriched_breakdown as $item) {
             $amount = (float) ($item['amount'] ?? 0);
             $grand_total += $amount;
-            $formatted_amount = wc_price($amount);
+            $formatted_amount = \SpaceBooking\Services\CurrencyService::format($amount);
             echo '<tr>';
             echo '<td>' . esc_html($item['label'] ?? 'Unknown') . '</td>';
             echo '<td style="text-align: right;">' . $formatted_amount . '</td>';
@@ -522,7 +522,7 @@ final class WooCommerceIntegration
         }
         echo '<tr style="font-weight: bold; border-top: 2px solid #999;">';
         echo '<td>Total</td>';
-        echo '<td style="text-align: right;">' . wc_price($grand_total) . '</td>';
+        echo '<td style="text-align: right;">' . esc_html(\SpaceBooking\Services\CurrencyService::format($grand_total)) . '</td>';
         echo '</tr>';
         echo '</tbody></table>';
         echo '</div>';

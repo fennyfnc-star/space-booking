@@ -574,8 +574,8 @@ export function Step6Confirmation() {
                 {bookingStatus === "in_review" ? "Total Paid" : "Total Due"}
               </th>
               <td>
-                {parseFloat(bookingData.total_price.toString()).toFixed(2)}{" "}
                 {window.sbConfig.symbol}
+                {parseFloat(bookingData.total_price.toString()).toFixed(2)}
               </td>
             </tr>
           </tbody>
