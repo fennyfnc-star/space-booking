@@ -58,7 +58,10 @@ final class CurrencyService {
 	 */
 	public static function format( float $amount, int $decimals = 2 ): string {
 		$symbol = self::get_symbol();
-		return number_format( $amount, $decimals ) . ' ' . $symbol;
+		$formatted = number_format( abs( $amount ), $decimals );
+		return $amount < 0
+			? '-' . $symbol . $formatted
+			: $symbol . $formatted;
 	}
 
 	/**

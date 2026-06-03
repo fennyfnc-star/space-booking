@@ -110,7 +110,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         $extras_list .= '<li style="margin:0 0 4px;">' .
             esc_html($extra_name) .
             ' × ' . esc_html((string) $extra_qty) .
-            ($unit_price > 0 ? ' <small style="color:#666;">(' . wp_kses_post(wc_price($unit_price)) . ')</small>' : '') .
+            ($unit_price > 0 ? ' <small style="color:#666;">(' . esc_html(\SpaceBooking\Services\CurrencyService::format($unit_price)) . ')</small>' : '') .
             '</li>';
     }
 
@@ -277,21 +277,61 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
     }
 
     $breakdown_html = '';
-    $append_group_rows = static function (string $title, array $rows, float $subtotal): string {
+    $normalize_summary_label = static function (string $label): string {
+        $normalized = strtolower(trim(wp_strip_all_tags($label)));
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+        if (!is_string($normalized)) {
+            return '';
+        }
+
+        $normalized = preg_replace('/\s*\((package inclusion|package|extra|space)\)\s*$/i', '', $normalized);
+        return trim(is_string($normalized) ? $normalized : '');
+    };
+
+    $placeholder_image = function_exists('wc_placeholder_img_src') ? wc_placeholder_img_src() : '';
+    $item_images_by_label = [];
+    foreach ($selected_items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $item_name = trim((string) ($item['title'] ?? ''));
+        if ($item_name === '') {
+            continue;
+        }
+
+        $image_id = (int) get_post_thumbnail_id((int) ($item['id'] ?? 0));
+        $image_url = $image_id ? (wp_get_attachment_image_url($image_id, 'thumbnail') ?: $placeholder_image) : $placeholder_image;
+        if ($image_url === '') {
+            continue;
+        }
+
+        $item_images_by_label[$normalize_summary_label($item_name)] = $image_url;
+    }
+
+    $append_group_rows = static function (string $title, array $rows, float $subtotal) use ($item_images_by_label, $normalize_summary_label): string {
         if (empty($rows)) {
             return '';
         }
 
         $html = '<tr><td colspan="2" style="text-align:left;padding:10px 8px;background:#fafafa;border-top:1px solid #eee;border-bottom:1px solid #eee;font-weight:700;">' . esc_html($title) . '</td></tr>';
         foreach ($rows as $row) {
+            $row_label = (string) $row['label'];
+            $image_url = $item_images_by_label[$normalize_summary_label($row_label)] ?? '';
+            $label_html = esc_html($row_label);
+            if ($image_url !== '') {
+                $label_html = '<img src="' . esc_url($image_url) . '" width="40" height="40" alt="' . esc_attr($row_label) . '" style="vertical-align:middle;margin-right:10px;border-radius:4px;">' .
+                    '<span style="display:inline-block;vertical-align:middle;">' . esc_html($row_label) . '</span>';
+            }
+
             $html .= '<tr>' .
-                '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html((string) $row['label']) . '</td>' .
-                '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price((float) $row['amount'])) . '</td>' .
+                '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;vertical-align:middle;">' . $label_html . '</td>' .
+                '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . esc_html(\SpaceBooking\Services\CurrencyService::format((float) $row['amount'])) . '</td>' .
                 '</tr>';
         }
         $html .= '<tr>' .
             '<td style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;"><em>' . esc_html__('Subtotal', 'space-booking') . ' - ' . esc_html($title) . '</em></td>' .
-            '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;color:#555;"><em>' . wp_kses_post(wc_price($subtotal)) . '</em></td>' .
+            '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee;color:#555;"><em>' . esc_html(\SpaceBooking\Services\CurrencyService::format($subtotal)) . '</em></td>' .
             '</tr>';
 
         return $html;
@@ -306,12 +346,12 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
         $base_price = (float) ($booking['base_price'] ?? 0);
         $extras_price = (float) ($booking['extras_price'] ?? 0);
         $modifier_price = (float) ($booking['modifier_price'] ?? 0);
-        $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Base', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price($base_price)) . '</td></tr>';
+        $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Base', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . esc_html(\SpaceBooking\Services\CurrencyService::format($base_price)) . '</td></tr>';
         if ($extras_price > 0) {
-            $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Extras', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price($extras_price)) . '</td></tr>';
+            $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Extras', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . esc_html(\SpaceBooking\Services\CurrencyService::format($extras_price)) . '</td></tr>';
         }
         if ($modifier_price !== 0.0) {
-            $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Modifiers', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . wp_kses_post(wc_price($modifier_price)) . '</td></tr>';
+            $breakdown_html .= '<tr><td style="text-align:left;padding:8px;border-bottom:1px solid #eee;">' . esc_html__('Modifiers', 'space-booking') . '</td><td style="text-align:right;padding:8px;border-bottom:1px solid #eee;">' . esc_html(\SpaceBooking\Services\CurrencyService::format($modifier_price)) . '</td></tr>';
         }
     }
 
@@ -340,6 +380,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
             $order = $orders[0];
         }
     }
+
     $order_date = ($order instanceof WC_Order && $order->get_date_created())
         ? wc_format_datetime($order->get_date_created())
         : $date_display;
@@ -493,22 +534,22 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
                         <strong>" . esc_html($item_name) . "</strong> × " . esc_html((string) $item->get_quantity()) . "
                     </span>
                 </td>
-                <td style='text-align:right; border-bottom: 1px solid #eee; padding:12px; vertical-align: middle;'>" . wp_kses_post(wc_price((float) $item->get_total())) . "</td>
+                <td style='text-align:right; border-bottom: 1px solid #eee; padding:12px; vertical-align: middle;'>" . esc_html(\SpaceBooking\Services\CurrencyService::format((float) $item->get_total())) . "</td>
             </tr>";
         }
     }
 
     if ($order_items_html === '') {
-        $order_items_html = "<tr><td style='text-align:left; border-bottom: 1px solid #eee; padding:12px;'>" . esc_html__('Booking', 'space-booking') . " #" . esc_html((string) $booking_id) . "</td><td style='text-align:right; border-bottom: 1px solid #eee; padding:12px;'>" . esc_html($currency_symbol) . number_format((float) ($booking['total_price'] ?? 0), 2) . "</td></tr>";
+        $order_items_html = "<tr><td style='text-align:left; border-bottom: 1px solid #eee; padding:12px;'>" . esc_html__('Booking', 'space-booking') . " #" . esc_html((string) $booking_id) . "</td><td style='text-align:right; border-bottom: 1px solid #eee; padding:12px;'>" . esc_html(\SpaceBooking\Services\CurrencyService::format((float) ($booking['total_price'] ?? 0))) . "</td></tr>";
     }
 
     $total_display = $order instanceof WC_Order
         ? $order->get_formatted_order_total()
-        : esc_html($currency_symbol) . number_format((float) ($booking['total_price'] ?? 0), 2);
+        : esc_html(\SpaceBooking\Services\CurrencyService::format((float) ($booking['total_price'] ?? 0)));
 
     $subtotal_display = $order instanceof WC_Order
         ? $order->get_subtotal_to_display()
-        : esc_html($currency_symbol) . number_format((float) ($booking['base_price'] ?? 0) + (float) ($booking['extras_price'] ?? 0), 2);
+        : esc_html(\SpaceBooking\Services\CurrencyService::format((float) ($booking['base_price'] ?? 0) + (float) ($booking['extras_price'] ?? 0)));
 
     // Build email message.
     $message = "
@@ -554,11 +595,7 @@ function sb_send_booking_confirmation_email(int $booking_id, string $admin_feedb
                             <th style='text-align:right; border-bottom: 2px solid #eee; padding:12px; background: #fafafa; font-size: 12px;'>" . esc_html__('Price', 'space-booking') . "</th>
                         </tr>
                     </thead>
-                    <tbody>" . $order_items_html . (
-                        $breakdown_html !== ''
-                            ? "<tr><td colspan='2' style='text-align:left;padding:10px 8px;background:#fafafa;border-top:1px solid #eee;border-bottom:1px solid #eee;font-weight:700;'>" . esc_html__('Detailed Price Breakdown', 'space-booking') . "</td></tr>" . $breakdown_html
-                            : ''
-                    ) . "</tbody>
+                    <tbody>" . $breakdown_html . "</tbody>
                     <tfoot>
                         <tr>
                             <th style='text-align:left; padding:12px; border-top: 1px solid #eee;'>" . esc_html__('Subtotal', 'space-booking') . "</th>

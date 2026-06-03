@@ -184,10 +184,7 @@ $order_payment_method = $linked_order ? (string) $linked_order->get_payment_meth
 $order_admin_link = $linked_order ? admin_url('post.php?post=' . $linked_order->get_id() . '&action=edit') : '';
 $format_money = static function ($amount): string {
     $value = (float) $amount;
-    if (function_exists('wc_price')) {
-        return wp_kses_post(wc_price($value));
-    }
-    return '$' . number_format($value, 2);
+    return \SpaceBooking\Services\CurrencyService::format($value);
 };
 
 $spaces_subtotal = 0.0;

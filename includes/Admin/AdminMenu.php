@@ -201,7 +201,7 @@ final class AdminMenu
                 <td><?php echo esc_html($b['booking_date']); ?></td>
                 <td><?php echo esc_html(substr($b['start_time'], 0, 5) . ' – ' . substr($b['end_time'], 0, 5)); ?>
                 </td>
-                <td>$<?php echo esc_html(number_format((float) $b['total_price'], 2)); ?></td>
+                <td><?php echo \SpaceBooking\Services\CurrencyService::format((float) $b['total_price']); ?></td>
                 <td><span
                         class="sb-status sb-status--<?php echo esc_attr($b['status']); ?>"><?php echo esc_html(ucfirst($b['status'])); ?></span>
                 </td>

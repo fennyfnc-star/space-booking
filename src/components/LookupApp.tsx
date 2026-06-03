@@ -169,7 +169,7 @@ export function LookupApp() {
 
           <div className="sb-booking-card__details">
             <span>
-              Total: <strong>${Number(b.total_price).toFixed(2)}</strong>
+              Total: <strong>{window.sbConfig.symbol}{Number(b.total_price).toFixed(2)}</strong>
             </span>
             {(b.extras || []).length > 0 && (
               <ul className="sb-confirm-extras">
