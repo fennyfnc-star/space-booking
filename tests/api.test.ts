@@ -15,6 +15,7 @@ import {
   fetchResourceMap,
 } from "../src/utils/api";
 import { formatBookingDate } from "../src/utils/date";
+import { sanitizeBookingPolicyHtml } from "../src/components/steps/Step4Terms";
 
 // Mock the API response helper
 const mockSlots = [
@@ -818,5 +819,21 @@ describe("formatBookingDate", () => {
 
   it("returns the original value for non-ISO input", () => {
     expect(formatBookingDate("June 2, 2026")).toBe("June 2, 2026");
+  });
+});
+
+describe("booking policy html", () => {
+  it("keeps semantic WYSIWYG markup while stripping unsafe tags", () => {
+    const html =
+      '<h2>Terms</h2><p>Please read the policy.</p><ul><li>Item 1</li><li>Item 2</li></ul><script>alert("xss")</script>';
+
+    const sanitized = sanitizeBookingPolicyHtml(html);
+
+    expect(sanitized).toContain("<h2>Terms</h2>");
+    expect(sanitized).toContain("<p>Please read the policy.</p>");
+    expect(sanitized).toContain("<ul>");
+    expect(sanitized).toContain("<li>Item 1</li>");
+    expect(sanitized).toContain("<li>Item 2</li>");
+    expect(sanitized).not.toContain("<script>");
   });
 });

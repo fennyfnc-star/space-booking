@@ -177,9 +177,14 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         // 2) Package selected but no questions configured: no package Q&A section shown.
         $this->assertStringContainsString('const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];', $step5Payment);
         $this->assertStringContainsString('if (!answer) return;', $step5Payment);
-        $this->assertStringContainsString('normalizeBookingPolicyHtml', $step4Terms);
-        $this->assertStringContainsString('split(/\\r\\n|\\r|\\n/)', $step4Terms);
-        $this->assertStringContainsString('document.createElement("br")', $step4Terms);
+        $this->assertStringContainsString('sanitizeBookingPolicyHtml', $step4Terms);
+        $this->assertStringNotContainsString('normalizeBookingPolicyHtml', $step4Terms);
+
+        $frontendStyles = (string) file_get_contents($this->pluginRoot . '/src/styles.css');
+        $this->assertStringContainsString('.sb-policy-text ul {', $frontendStyles);
+        $this->assertStringContainsString('list-style: disc outside;', $frontendStyles);
+        $this->assertStringContainsString('.sb-policy-text ol {', $frontendStyles);
+        $this->assertStringContainsString('list-style: decimal outside;', $frontendStyles);
 
         // 3) Package with answers should render in checkout/confirmation/admin/emails.
         $this->assertStringContainsString('Package Answers', $step5Payment);
