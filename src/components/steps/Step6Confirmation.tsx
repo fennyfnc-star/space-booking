@@ -102,7 +102,9 @@ export function Step6Confirmation() {
                 : [];
           if (packageIds.length > 0) {
             try {
-              const packageRes = await fetch(`${window.sbConfig.apiBase}/packages`);
+              const packageRes = await fetch(
+                `${window.sbConfig.apiBase}/packages`,
+              );
               if (packageRes.ok) {
                 const allPackages = await packageRes.json();
                 const packageDetails = allPackages.find(
@@ -117,7 +119,9 @@ export function Step6Confirmation() {
 
           // Load all extras so package-included extras can show real names.
           try {
-            const extrasRes = await fetch(`${window.sbConfig.apiBase}/extras/all`);
+            const extrasRes = await fetch(
+              `${window.sbConfig.apiBase}/extras/all`,
+            );
             if (extrasRes.ok) {
               const extrasData = await extrasRes.json();
               setAllExtras(Array.isArray(extrasData) ? extrasData : []);
@@ -193,7 +197,10 @@ export function Step6Confirmation() {
       return [];
     }
 
-    if (Array.isArray(packageData.space_ids) && packageData.space_ids.length > 0) {
+    if (
+      Array.isArray(packageData.space_ids) &&
+      packageData.space_ids.length > 0
+    ) {
       return packageData.space_ids
         .map((id: number) => Number(id))
         .filter((id: number) => id > 0);
@@ -253,9 +260,10 @@ export function Step6Confirmation() {
     if (packageSpaceIds.length > 0) {
       return packageSpaceIds
         .map((spaceId, index) => {
-          const title = index === 0
-            ? packageData?.space_name || `Space #${spaceId}`
-            : `Space #${spaceId}`;
+          const title =
+            index === 0
+              ? packageData?.space_name || `Space #${spaceId}`
+              : `Space #${spaceId}`;
           return `${title} (Package)`;
         })
         .join(", ");
@@ -326,7 +334,10 @@ export function Step6Confirmation() {
     return [...regularExtras, ...packageExtras];
   };
 
-  const getPackageQuestionRows = (): Array<{ label: string; value: string }> => {
+  const getPackageQuestionRows = (): Array<{
+    label: string;
+    value: string;
+  }> => {
     const raw = bookingData._meta_data?._sb_package_question_answers;
     if (!raw) return [];
 
@@ -352,7 +363,9 @@ export function Step6Confirmation() {
         if (value === undefined || value === null) return null;
         if (typeof value === "string" && value.trim() === "") return null;
         if (Array.isArray(value) && value.length === 0) return null;
-        const valueText = Array.isArray(value) ? value.join(", ") : String(value);
+        const valueText = Array.isArray(value)
+          ? value.join(", ")
+          : String(value);
         const others = String(item.others_text || "").trim();
         return {
           label,
@@ -368,7 +381,8 @@ export function Step6Confirmation() {
       bookingData._meta_data?._sb_booking_notes?.trim() ||
       ""
     ).trim();
-    const checkoutNote = bookingData._meta_data?._sb_wc_customer_note?.trim() || "";
+    const checkoutNote =
+      bookingData._meta_data?._sb_wc_customer_note?.trim() || "";
 
     const rows: Array<{ label: string; value: string }> = [];
 
@@ -460,11 +474,11 @@ export function Step6Confirmation() {
                           {item.type === "sb_package" ? "📦" : "🏠"}{" "}
                           {item.title}
                         </li>
-              ))}
-            </ul>
-          </td>
-        </tr>
-      )}
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              )}
 
             <tr>
               <th>Date</th>
@@ -503,7 +517,9 @@ export function Step6Confirmation() {
                     {noteRows.map((row, index) => (
                       <li key={`${row.label}-${index}`}>
                         <strong>{row.label}:</strong>{" "}
-                        <span style={{ whiteSpace: "pre-line" }}>{row.value}</span>
+                        <span style={{ whiteSpace: "pre-line" }}>
+                          {row.value}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -533,7 +549,9 @@ export function Step6Confirmation() {
                       <li key={e.key}>
                         {e.title}
                         {e.isPackage ? " (Package)" : ""}
-                        {!e.isPackage && (e.quantity ?? 0) > 1 && ` × ${e.quantity}`}
+                        {!e.isPackage &&
+                          (e.quantity ?? 0) > 1 &&
+                          ` × ${e.quantity}`}
                         {!e.isPackage && (e.unit_price ?? 0) > 0 && (
                           <span style={{ color: "#666", fontSize: "0.9em" }}>
                             {" "}
@@ -588,9 +606,8 @@ export function Step6Confirmation() {
       )}
       <p className="sb-confirm-lookup">
         {bookingStatus === "in_review"
-          ? "Booking in review. Manage via "
-          : "You'll receive confirmation after payment. Manage bookings via "}
-        <a href="/booking-lookup/">booking lookup</a> with your email.
+          ? "Booking in review."
+          : "Booking is confirmed!"}
       </p>
     </div>
   );
