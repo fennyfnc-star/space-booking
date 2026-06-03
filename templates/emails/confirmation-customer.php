@@ -7,7 +7,7 @@ $primary_color = \SpaceBooking\Services\EmailTemplateHelper::PRIMARY_COLOR;
 $space_name = get_the_title((int) ($booking['space_id'] ?? 0)) ?: __('Space', 'space-booking');
 $start_time = date('g:i A', strtotime((string) ($booking['start_time'] ?? '')));
 $end_time = date('g:i A', strtotime((string) ($booking['end_time'] ?? '')));
-$date_display = date_i18n(get_option('date_format'), strtotime((string) ($booking['booking_date'] ?? '')));
+$date_display = \SpaceBooking\Services\DateDisplayHelper::format_booking_date((string) ($booking['booking_date'] ?? ''));
 $total_display = \SpaceBooking\Services\CurrencyService::format((float) ($booking['total_price'] ?? 0));
 $qa_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html(
 	is_array($package_answer_rows ?? null) ? $package_answer_rows : []
@@ -53,4 +53,3 @@ $qa_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html(
 	</div>
 </body>
 </html>
-

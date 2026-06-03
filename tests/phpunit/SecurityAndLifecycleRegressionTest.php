@@ -122,13 +122,48 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         $ajaxHandlers = (string) file_get_contents($this->pluginRoot . '/includes/Admin/ajax-handlers.php');
         $this->assertStringContainsString('EmailTemplateHelper::PRIMARY_COLOR', $ajaxHandlers);
         $this->assertStringContainsString('package_answers_html', $ajaxHandlers);
+        $this->assertStringContainsString('Order Summary', $ajaxHandlers);
+        $this->assertStringContainsString('Detailed Price Breakdown', $ajaxHandlers);
+    }
+
+    public function test_admin_email_setting_accepts_comma_separated_recipients(): void
+    {
+        $adminMenu = (string) file_get_contents($this->pluginRoot . '/includes/Admin/AdminMenu.php');
+        $emailService = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailService.php');
+        $ajaxHandlers = (string) file_get_contents($this->pluginRoot . '/includes/Admin/ajax-handlers.php');
+
+        $this->assertStringContainsString("'sb_admin_email' => [\$this, 'sanitize_admin_email_list']", $adminMenu);
+        $this->assertStringContainsString('Separate multiple addresses with commas.', $adminMenu);
+        $this->assertStringContainsString("preg_split('/\\s*,\\s*/'", $adminMenu);
+        $this->assertStringContainsString('resolve_admin_emails', $emailService);
+        $this->assertStringContainsString('wp_mail($this->admin_emails', $emailService);
+        $this->assertStringContainsString("preg_split('/\\s*,\\s*/'", $emailService);
+        $this->assertStringContainsString('sb_get_admin_notification_emails', $ajaxHandlers);
+        $this->assertStringContainsString('wp_mail($admin_emails', $ajaxHandlers);
+    }
+
+    public function test_recaptcha_detector_supports_common_woocommerce_option_shapes(): void
+    {
+        $recaptchaService = (string) file_get_contents($this->pluginRoot . '/includes/Services/RecaptchaService.php');
+
+        $this->assertStringContainsString('woocommerce_google_recaptcha_site_key', $recaptchaService);
+        $this->assertStringContainsString('woocommerce_google_recaptcha_settings', $recaptchaService);
+        $this->assertStringContainsString('woocommerce_ppcp-recaptcha_settings', $recaptchaService);
+        $this->assertStringContainsString('siteKey', $recaptchaService);
+        $this->assertStringContainsString('secretKey', $recaptchaService);
+        $this->assertStringContainsString('site_key_v3', $recaptchaService);
+        $this->assertStringContainsString('secret_key_v3', $recaptchaService);
+        $this->assertStringContainsString('captcha_site_key', $recaptchaService);
+        $this->assertStringContainsString('captcha_secret_key', $recaptchaService);
     }
 
     public function test_package_questions_qa_checklist_contracts_across_booking_views(): void
     {
         $step5Payment = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step5Payment.tsx');
+        $step4Terms = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step4Terms.tsx');
         $step6Confirmation = (string) file_get_contents($this->pluginRoot . '/src/components/steps/Step6Confirmation.tsx');
         $adminEdit = (string) file_get_contents($this->pluginRoot . '/templates/admin/page-booking-edit.php');
+        $wooIntegration = (string) file_get_contents($this->pluginRoot . '/includes/Integrations/WooCommerceIntegration.php');
         $emailHelper = (string) file_get_contents($this->pluginRoot . '/includes/Services/EmailTemplateHelper.php');
         $adminEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/notification-admin.php');
         $customerEmailTemplate = (string) file_get_contents($this->pluginRoot . '/templates/emails/confirmation-customer.php');
@@ -142,10 +177,20 @@ final class SecurityAndLifecycleRegressionTest extends TestCase
         // 2) Package selected but no questions configured: no package Q&A section shown.
         $this->assertStringContainsString('const fields = Array.isArray(pkg.theme_meta_fields) ? pkg.theme_meta_fields : [];', $step5Payment);
         $this->assertStringContainsString('if (!answer) return;', $step5Payment);
+        $this->assertStringContainsString('sanitizeBookingPolicyHtml', $step4Terms);
+        $this->assertStringNotContainsString('normalizeBookingPolicyHtml', $step4Terms);
+
+        $frontendStyles = (string) file_get_contents($this->pluginRoot . '/src/styles.css');
+        $this->assertStringContainsString('.sb-policy-text ul {', $frontendStyles);
+        $this->assertStringContainsString('list-style: disc outside;', $frontendStyles);
+        $this->assertStringContainsString('.sb-policy-text ol {', $frontendStyles);
+        $this->assertStringContainsString('list-style: decimal outside;', $frontendStyles);
 
         // 3) Package with answers should render in checkout/confirmation/admin/emails.
         $this->assertStringContainsString('Package Answers', $step5Payment);
         $this->assertStringContainsString('Package Answers', $step6Confirmation);
+        $this->assertStringContainsString('WooCommerce checkout note', $step6Confirmation);
+        $this->assertStringContainsString('_sb_wc_customer_note', $wooIntegration);
         $this->assertStringContainsString('Package Answers', $adminEdit);
         $this->assertStringContainsString('render_package_qa_html', $emailHelper);
         $this->assertStringContainsString('package_answer_rows', $adminEmailTemplate);

@@ -62,7 +62,7 @@ const BOOKING_POLICY_ALLOWED_ATTR = [
   "align",
 ] as const;
 
-function sanitizeBookingPolicy(policy: string): string {
+export function sanitizeBookingPolicyHtml(policy: string): string {
   return DOMPurify.sanitize(policy, {
     ALLOWED_TAGS: [...BOOKING_POLICY_ALLOWED_TAGS],
     ALLOWED_ATTR: [...BOOKING_POLICY_ALLOWED_ATTR],
@@ -73,7 +73,7 @@ export function Step4Terms() {
   const { nextStep, prevStep } = useBookingStore();
   const policyRef = useRef<HTMLDivElement | null>(null);
   const [bookingPolicy, setBookingPolicy] = useState(() =>
-    sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+    sanitizeBookingPolicyHtml(window.sbConfig?.bookingPolicy || ""),
   );
   const [agreed, setAgreed] = useState(false);
   const [canAgree, setCanAgree] = useState(false);
@@ -82,7 +82,7 @@ export function Step4Terms() {
 
   useEffect(() => {
     setBookingPolicy(
-      sanitizeBookingPolicy(window.sbConfig?.bookingPolicy || ""),
+      sanitizeBookingPolicyHtml(window.sbConfig?.bookingPolicy || ""),
     );
   }, []);
 

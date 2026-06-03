@@ -23,6 +23,7 @@ function sb_format_time_12hour(string $time): string
 $site_name = get_bloginfo('name');
 $space_name = get_the_title((int) $booking['space_id']);
 $admin_url = admin_url('admin.php?page=space-booking');
+$date_display = \SpaceBooking\Services\DateDisplayHelper::format_booking_date((string) ($booking['booking_date'] ?? ''));
 $qa_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html(
     is_array($package_answer_rows ?? null) ? $package_answer_rows : []
 );
@@ -104,7 +105,7 @@ $qa_html = \SpaceBooking\Services\EmailTemplateHelper::render_package_qa_html(
             </tr>
             <tr>
                 <th>Date</th>
-                <td><?php echo esc_html($booking['booking_date']); ?></td>
+                <td><?php echo esc_html($date_display ?: (string) $booking['booking_date']); ?></td>
             </tr>
             <tr>
                 <th>Time</th>

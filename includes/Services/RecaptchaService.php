@@ -15,8 +15,11 @@ final class RecaptchaService
 
         $direct_candidates = [
             ['site' => 'woocommerce_recaptcha_site_key', 'secret' => 'woocommerce_recaptcha_secret_key', 'version' => 'woocommerce_recaptcha_version'],
+            ['site' => 'woocommerce_google_recaptcha_site_key', 'secret' => 'woocommerce_google_recaptcha_secret_key', 'version' => 'woocommerce_google_recaptcha_version'],
             ['site' => 'wc_recaptcha_site_key', 'secret' => 'wc_recaptcha_secret_key', 'version' => 'wc_recaptcha_version'],
+            ['site' => 'wc_google_recaptcha_site_key', 'secret' => 'wc_google_recaptcha_secret_key', 'version' => 'wc_google_recaptcha_version'],
             ['site' => 'recaptcha_site_key', 'secret' => 'recaptcha_secret_key', 'version' => 'recaptcha_version'],
+            ['site' => 'google_recaptcha_site_key', 'secret' => 'google_recaptcha_secret_key', 'version' => 'google_recaptcha_version'],
         ];
 
         foreach ($direct_candidates as $candidate) {
@@ -34,21 +37,47 @@ final class RecaptchaService
         if ($site_key === '' || $secret_key === '') {
             $array_options = [
                 'woocommerce_recaptcha_settings',
+                'woocommerce_google_recaptcha_settings',
+                'woocommerce_ppcp-recaptcha_settings',
                 'wc_recaptcha_settings',
+                'wc_google_recaptcha_settings',
                 'recaptcha_woocommerce_settings',
                 'recaptcha_settings',
+                'google_recaptcha_settings',
+                'woocommerce_captcha_settings',
+                'wc_captcha_settings',
+                'captcha_settings',
             ];
             foreach ($array_options as $option_name) {
                 $settings = get_option($option_name, []);
                 if (!is_array($settings)) {
                     continue;
                 }
-                $candidate_site = (string) ($settings['site_key'] ?? $settings['recaptcha_site_key'] ?? '');
-                $candidate_secret = (string) ($settings['secret_key'] ?? $settings['recaptcha_secret_key'] ?? '');
+                $candidate_site = (string) ($settings['site_key']
+                    ?? $settings['siteKey']
+                    ?? $settings['site_key_v3']
+                    ?? $settings['site_key_v2']
+                    ?? $settings['recaptcha_site_key']
+                    ?? $settings['google_recaptcha_site_key']
+                    ?? $settings['captcha_site_key']
+                    ?? '');
+                $candidate_secret = (string) ($settings['secret_key']
+                    ?? $settings['secretKey']
+                    ?? $settings['secret_key_v3']
+                    ?? $settings['secret_key_v2']
+                    ?? $settings['recaptcha_secret_key']
+                    ?? $settings['google_recaptcha_secret_key']
+                    ?? $settings['captcha_secret_key']
+                    ?? '');
                 if ($candidate_site !== '' && $candidate_secret !== '') {
                     $site_key = $candidate_site;
                     $secret_key = $candidate_secret;
-                    $version = $this->normalize_version((string) ($settings['version'] ?? $settings['recaptcha_version'] ?? 'v3'));
+                    $version = $this->normalize_version((string) ($settings['version']
+                        ?? $settings['recaptcha_version']
+                        ?? $settings['google_recaptcha_version']
+                        ?? (!empty($settings['site_key_v3']) ? 'v3' : (!empty($settings['site_key_v2']) ? 'v2' : 'v3'))
+                        ?? $settings['captcha_version']
+                        ?? 'v3'));
                     $source = 'option_array:' . $option_name;
                     break;
                 }

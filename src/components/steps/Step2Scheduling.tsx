@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useBookingStore } from "@/store/bookingStore";
 import { fetchMultiAvailability } from "@/utils/api";
+import { formatBookingDate } from "@/utils/date";
 import type { AvailabilityResponse, TimeSlot, Package } from "@/types";
 
 import { fetchPricing } from "@/utils/api";
@@ -134,6 +135,7 @@ export function Step2Scheduling() {
 
   // Minimum selectable date = today
   const today = new Date().toISOString().split("T")[0];
+  const formattedSelectedDate = selectedDate ? formatBookingDate(selectedDate) : "";
 
   // ARRAY-ONLY: Load resourceMap ONCE when component mounts
   // CRITICAL: Wait for resourceMap to BE FULLY LOADED before using getLockedResourceIds
@@ -291,6 +293,11 @@ export function Step2Scheduling() {
           value={selectedDate}
           onChange={(e) => setDate(e.target.value)}
         />
+        {formattedSelectedDate && (
+          <p className="sb-help" style={{ marginTop: "6px" }}>
+            Selected date: <strong>{formattedSelectedDate}</strong>
+          </p>
+        )}
       </div>
 
       {loading && <div className="sb-loading">Checking availability…</div>}
